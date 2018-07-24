@@ -31,7 +31,7 @@ static_assert(__INTEL_COMPILER >= 1900, "");
 static_assert(__clang_major__ >= 4, "");
 #define WLL_CURRENT_FUNCTION __PRETTY_FUNCTION__
 #elif defined(_MSC_VER)
-static_assert(_MSC_VER >= 1914, "");
+static_assert(_MSC_VER >= 1911, "");
 #define WLL_CURRENT_FUNCTION __FUNCSIG__
 #endif
 
