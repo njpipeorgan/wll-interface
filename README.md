@@ -21,6 +21,8 @@ To use *wll-interface*, you need:
 
 ## Neat example
 
+For a complete walk-through, see [Walk-through](https://github.com/njpipeorgan/wll-interface/wiki/Walk-through) in the Wiki.
+
 After including `wll_interface.h` and adding *Mathematica* C/C++ IncludeFiles Directory (`$InstallationDirectory/SystemFiles/IncludeFiles/C`) to your compiler's include directories, you are ready to use *wll-interface*. 
 
 Compile the following code into a dynamic library: 
