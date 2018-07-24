@@ -14,7 +14,7 @@ First, we create a empty project in VS2017.
 1. Choose **File > New > Project** to open the **New Project** dialog box.
 2. Select **Installed > Visual C++ > General**, and select **Empty Project** in the center pane. In the **Name** box, enter the project name *MyLibraryLinkProject*. Then click **OK** button.
 4. Choose **Project > Add New Item** on the menu bar to open the dialog box.
-5. Select **Installed > Visual C++**, and and select **C++ File (.cpp)** in the center pane. In the **Name** box, enter *functions.cpp*. Then click **OK** button. We will write our LibraryLink function in this file later.
+5. Select **Installed > Visual C++**, and and select **C++ File (.cpp)** in the center pane. In the **Name** box, enter *functions.cpp*. Then click **OK** button. We will write our *LibraryLink* function in this file later.
 
 Second, we manage the properties of our project and include *wll-interface* into the project.
 
@@ -43,9 +43,9 @@ In the **Solution Explorer** window, click **Source Files > function.cpp** to op
     
     DEFINE_WLL_FUNCTION(power)           // defines the LibraryLink function "wll_power"
 
-Note that `DEFINE_WLL_FUNCTION` is a macro defined in `wll_interface.h`, which expands to a *LibraryLink* function that handles argument passing, including matching the argument types between Wolfram Language and C++. 
+Note that `DEFINE_WLL_FUNCTION` is a macro defined in `wll_interface.h`, which expands to a *LibraryLink* function that handles argument passing, including matching the argument types between Wolfram Language and C++. This macro will generate the *LibraryLink* function by prepending `wll_` to the C++ function to avoid name collision. 
 
-Choose **Build > Build Solution** on the menu bar. If the compilation is successful, the path to the output library is shown in the **Output** window, as `...\...\MyLibraryLinkProject.dll` .
+Choose **Build > Build Solution** on the menu bar. If the compilation is successful, the path to the output library is shown in the **Output** window, as `...\...\MyLibraryLinkProject.dll`.
 
 ### Load the library
 
@@ -53,7 +53,7 @@ Open *Mathematica*, then set `mylib` to the full path of the .dll file in the pr
 
     mylib = "...\\...\\MyLibraryLinkProject.dll";
 
-Load the *LibraryLink* function `wll_power` from `mylib`, and provide the argument types and the result type. 
+Load the *LibraryLink* function `wll_power` from `mylib`, and provide the argument types (Real, Integer) and the result type (Real). 
 
     power = LibraryFunctionLoad[mylib, "wll_power", {Real, Integer}, Real];
 
