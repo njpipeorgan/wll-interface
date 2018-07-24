@@ -105,8 +105,11 @@ WolframLibraryData global_lib_data;
 log_stringstream_t global_log;
 
 
-//#define WLL_DEBUG_EXECUTE(any) ((void)0)
+#ifdef NDEBUG
+#define WLL_DEBUG_EXECUTE(any) ((void)0)
+#else
 #define WLL_DEBUG_EXECUTE(any) (any)
+#endif
 
 
 template<typename LinkType, typename UserType>
@@ -849,9 +852,7 @@ void submit_result(Ret&& result, MArgument mresult)
     else if constexpr (tensor_passing_category_v<Ret> == tensor_passing_by::value)
     {
         MTensor ret = std::move(result).get_mtensor();
-        WLL_DEBUG_EXECUTE(global_log << "result.access_ == " << result.access_ << '\n'
-                          << "result.mtensor_ == " << std::hex << reinterpret_cast<uint64_t>(result.mtensor_) << std::dec << '\n'
-                          << "rank == " << global_lib_data->MTensor_getRank(ret) << '\n'
+        WLL_DEBUG_EXECUTE(global_log << "rank == " << global_lib_data->MTensor_getRank(ret) << '\n'
                           << "size == " << global_lib_data->MTensor_getFlattenedLength(ret) << '\n');
         MArgument_setMTensor(mresult, ret);
     }
