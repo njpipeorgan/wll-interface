@@ -566,7 +566,22 @@ private:
     template<typename Target, typename Source>
     static Target _mtype_cast(Source value)
     {
-        return static_cast<Target>(value);
+        if constexpr (is_std_complex_v<Target>)
+        {
+            return Target(static_cast<typename Target::value_type>(value),
+                          static_cast<typename Target::value_type>(0));
+        }
+        else if constexpr (std::is_same_v<mcomplex, Target>)
+        {
+            mcomplex result;
+            mcreal(result) = static_cast<mreal>(value.real());
+            mcimag(result) = static_cast<mreal>(0);
+            return result;
+        }
+        else
+        {
+            return static_cast<Target>(value);
+        }
     }
 
     template<typename Target>
@@ -576,6 +591,32 @@ private:
         {
             return Target(static_cast<typename Target::value_type>(mcreal(value)),
                           static_cast<typename Target::value_type>(mcimag(value)));
+        }
+        else if constexpr (std::is_same_v<mcomplex, Target>)
+        {
+            return value;
+        }
+        else
+        {
+            WLL_ASSERT(false); // complex type can only be converted to complex type
+            return Target{};
+        }
+    }
+
+    template<typename Target, typename T>
+    static Target _mtype_cast(std::complex<T> value)
+    {
+        if constexpr (is_std_complex_v<Target>)
+        {
+            return Target(static_cast<typename Target::value_type>(value.real()),
+                          static_cast<typename Target::value_type>(value.imag()));
+        }
+        else if constexpr (std::is_same_v<mcomplex, Target>)
+        {
+            mcomplex result;
+            mcreal(result) = static_cast<mreal>(value.real());
+            mcimag(result) = static_cast<mreal>(value.imag());
+            return result;
         }
         else
         {
