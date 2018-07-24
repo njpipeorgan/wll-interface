@@ -18,15 +18,52 @@ First, we create a empty project in VS2017.
 
 Second, we manage the properties of our project and include *wll-interface* into the project.
 
-1. Download *wll_interface.h*, and save it to the *Mathematica* C/C++ IncludeFiles directory [Where is this directory?](#faq).
-2. Choose **Project > MyLibraryLinkProject Properties...** to open the **Property Pages** dialog box.  
+1. Download *wll_interface.h*, and save it to the *Mathematica* C/C++ IncludeFiles directory ([Where is this directory?](#faq)).
+2. Choose **Project > MyLibraryLinkProject Properties...** to open the **Property Pages** dialog box. 
 3. On the top of the dialog box, choose **All Configuration** in the **Configuration** drop-down list, and **x64** in the **Platform** drop-down list. 
-4. Select **Configuration Properties > C/C++ > Command Line**. In the **Additional Options** edit box, enter  
-`/std:c++17 /I "[your Mathematica C/C++ IncludeFiles directory]"`
+4. Click **Configuration Manager...** button, and choose **Debug** for **Active Solution Configuration**, and **x64** for **Active Solution Platform**. Then click **Close** button. 
+5. Select **Configuration Properties > General**. Find **Project Defaults > Configuration Type**, and choose **Dynamic Library (.dll)**. 
+6. Select **Configuration Properties > C/C++ > Command Line**. In the **Additional Options** edit box, enter:  
+`/std:c++17 /I "[your Mathematica C/C++ IncludeFiles directory]"`  
+For example, if you install *Mathematica* under `C:\Program Files\Wolfram Research\Mathematica\11.3`, you might enter:  
+`/std:c++17 /I "C:\Program Files\Wolfram Research\Mathematica\11.3\SystemFiles\IncludeFiles\C"` 
+7. Click **OK** button to save all changes.  
 
-### Write the function
+### Write and compile the function
+
+In the **Solution Explorer** window, click **Source Files > function.cpp** to open it. Enter the following code. 
+
+    #include "wll_interface.h"           // include wll interface library
+    
+    double power(double b, int p)        // defines the function "power"
+    {
+        double result = std::pow(b, p);  // calculate b^p
+        return result;                   // return the result
+    }
+    
+    DEFINE_WLL_FUNCTION(power)           // defines the LibraryLink function "wll_power"
+
+Note that `DEFINE_WLL_FUNCTION` is a macro defined in `wll_interface.h`, which expands to a *LibraryLink* function that handles argument passing, including matching the argument types between Wolfram Language and C++. 
+
+Choose **Build > Build Solution** on the menu bar. If the compilation is successful, the path to the output library is shown in the **Output** window, as `...\...\MyLibraryLinkProject.dll` .
 
 ### Load the library
+
+Open *Mathematica*, then set `mylib` to the full path of the .dll file in the previous step:
+
+    mylib = "...\\...\\MyLibraryLinkProject.dll";
+
+Load the *LibraryLink* function `wll_power` from `mylib`, and provide the argument types and the result type. 
+
+    power = LibraryFunctionLoad[mylib, "wll_power", {Real, Integer}, Real];
+
+The function can be called just like a normal Wolfram Language function: 
+
+    power[3.14, 2]     (* gives 9.8596 *)
+
+If you want to make any change to the source code and recompile it, unload the library from *Mathematica* so that the compiler can overwrite the .dll file.
+
+    LibraryUnload[mylib];
 
 
 ## How does *wll-interface* work?
