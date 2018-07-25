@@ -850,6 +850,10 @@ auto transform_arg(MArgument arg)
     {
         return static_cast<scalar_arg_t>(MArgument_getUTF8String(arg));
     }
+    else if constexpr (std::is_same_v<const char*, scalar_arg_t>)
+    {
+        return static_cast<scalar_arg_t>(MArgument_getUTF8String(arg));
+    }
     else if constexpr (is_std_complex_v<scalar_arg_t>)
     {
         const mcomplex& complex_arg = MArgument_getComplex(arg);
@@ -898,6 +902,12 @@ void submit_result(Ret&& result, MArgument mresult)
     else if constexpr (std::is_same_v<std::string, Ret>)
     {
         global_string_result = std::move(result);
+        char* string_ptr = const_cast<char*>(global_string_result.c_str());
+        MArgument_setUTF8String(mresult, string_ptr);
+    }
+    else if constexpr (std::is_same_v<const char*, Ret>)
+    {
+        global_string_result = std::string(result);
         char* string_ptr = const_cast<char*>(global_string_result.c_str());
         MArgument_setUTF8String(mresult, string_ptr);
     }
