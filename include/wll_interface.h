@@ -103,6 +103,7 @@ struct log_stringstream_t
 exception_status   global_exception;
 WolframLibraryData global_lib_data;
 log_stringstream_t global_log;
+std::string        global_string_result;
 
 
 #ifdef NDEBUG
@@ -841,9 +842,13 @@ auto transform_arg(MArgument arg)
     {
         return static_cast<scalar_arg_t>(MArgument_getInteger(arg));
     }
-    else if constexpr (std::is_floating_point_v<std::remove_const_t<Arg>>)
+    else if constexpr (std::is_floating_point_v<scalar_arg_t>)
     {
         return static_cast<scalar_arg_t>(MArgument_getReal(arg));
+    }
+    else if constexpr (std::is_same_v<std::string, scalar_arg_t>)
+    {
+        return static_cast<scalar_arg_t>(MArgument_getUTF8String(arg));
     }
     else if constexpr (is_std_complex_v<scalar_arg_t>)
     {
@@ -889,6 +894,12 @@ void submit_result(Ret&& result, MArgument mresult)
         mcomplex& complex_arg = MArgument_getComplex(mresult);
         mcreal(complex_arg) = result.real();
         mcimag(complex_arg) = result.imag();
+    }
+    else if constexpr (std::is_same_v<std::string, Ret>)
+    {
+        global_string_result = std::move(result);
+        char* string_ptr = const_cast<char*>(global_string_result.c_str());
+        MArgument_setUTF8String(mresult, string_ptr);
     }
     else if constexpr (tensor_passing_category_v<Ret> == tensor_passing_by::value)
     {
@@ -964,9 +975,9 @@ int library_eval(Ret fn(Args...), mint argc, MArgument* args, MArgument& mresult
         static_assert(!std::is_reference_v<Ret>, "cannot return a reference type");
         auto args_tuple = get_args<Args...>(args);
         if constexpr (std::is_same_v<void, Ret>)
-            tuple_invoke(std::move(fn), args_tuple);
+            tuple_invoke(fn, args_tuple);
         else
-            submit_result(tuple_invoke(std::move(fn), args_tuple), mresult);
+            submit_result(tuple_invoke(fn, args_tuple), mresult);
     }
     catch (...)
     {
