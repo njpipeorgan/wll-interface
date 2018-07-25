@@ -5,13 +5,15 @@ about: Create a report to help us improve
 ---
 
 **Describe the bug**
+
 A clear and concise description of what the bug is.
 
 **To Reproduce**
-1. Related C++ source code.
-2. How you load the function into Wolfram Language.
+ - Related C++ source code.
+ - How you load the function into Wolfram Language.
 
 **Expected behavior**
+
 A clear and concise description of what you expected to happen.
 
 **Environment:**
@@ -20,4 +22,5 @@ A clear and concise description of what you expected to happen.
  - *Mathematica* Version: [*e.g.* 11.0]
 
 **Additional context**
+
 Add any other context about the problem here.
