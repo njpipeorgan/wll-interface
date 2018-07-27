@@ -1,5 +1,10 @@
 #pragma once
 
+#if defined(_MSC_VER)
+// disable C4996 issued by std::copy_n
+#pragma warning( disable : 4996 ) 
+#endif
+
 #include <cassert>
 #include <array>
 #include <complex>
@@ -9,17 +14,22 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 #include "WolframLibrary.h"
+#include "WolframSparseLibrary.h"
+
 
 namespace wll
 {
+ 
 
 #ifdef NDEBUG
 #define WLL_ASSERT(x) ((void)0)
 #else
 #define WLL_ASSERT(x) assert((x))
 #endif
+
 
 #if defined(__GNUC__)
 static_assert(__GNUC__ >= 7, "");
@@ -34,6 +44,8 @@ static_assert(__clang_major__ >= 4, "");
 static_assert(_MSC_VER >= 1911, "");
 #define WLL_CURRENT_FUNCTION __FUNCSIG__
 #endif
+
+static_assert(sizeof(mint) == sizeof(size_t), "");
 
 
 struct exception_status
@@ -100,8 +112,12 @@ struct log_stringstream_t
     }
 };
 
-exception_status   global_exception;
+
 WolframLibraryData global_lib_data;
+using sparse_fn_lib_t = decltype(global_lib_data->sparseLibraryFunctions);
+sparse_fn_lib_t    global_sparse_fn;
+
+exception_status   global_exception;
 log_stringstream_t global_log;
 std::string        global_string_result;
 
@@ -139,6 +155,91 @@ constexpr bool is_std_complex_v = is_std_complex<Complex>::value;
 
 template<typename>
 constexpr bool _always_false_v = false;
+
+
+template<size_t Size>
+inline size_t _flattened_size(const std::array<size_t, Size>& dims) noexcept
+{
+    size_t size = 1;
+    for (size_t d : dims) size *= d;
+    return size;
+}
+
+template<typename Target, typename Source>
+inline Target _mtype_cast(Source value)
+{
+    if constexpr (is_std_complex_v<Target>)
+    {
+        return Target(static_cast<typename Target::value_type>(value),
+                      static_cast<typename Target::value_type>(0));
+    }
+    else if constexpr (std::is_same_v<mcomplex, Target>)
+    {
+        mcomplex result;
+        mcreal(result) = static_cast<mreal>(value.real());
+        mcimag(result) = static_cast<mreal>(0);
+        return result;
+    }
+    else
+    {
+        return static_cast<Target>(value);
+    }
+}
+
+template<typename Target>
+inline Target _mtype_cast(mcomplex value)
+{
+    if constexpr (is_std_complex_v<Target>)
+    {
+        return Target(static_cast<typename Target::value_type>(mcreal(value)),
+                      static_cast<typename Target::value_type>(mcimag(value)));
+    }
+    else if constexpr (std::is_same_v<mcomplex, Target>)
+    {
+        return value;
+    }
+    else
+    {
+        WLL_ASSERT(false); // complex type can only be converted to complex type
+        return Target{};
+    }
+}
+
+template<typename Target, typename T>
+inline Target _mtype_cast(std::complex<T> value)
+{
+    if constexpr (is_std_complex_v<Target>)
+    {
+        return Target(static_cast<typename Target::value_type>(value.real()),
+                      static_cast<typename Target::value_type>(value.imag()));
+    }
+    else if constexpr (std::is_same_v<mcomplex, Target>)
+    {
+        mcomplex result;
+        mcreal(result) = static_cast<mreal>(value.real());
+        mcimag(result) = static_cast<mreal>(value.imag());
+        return result;
+    }
+    else
+    {
+        WLL_ASSERT(false); // complex type can only be converted to complex type
+        return Target{};
+    }
+}
+
+template<typename SrcType, typename DestType>
+inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_ptr)
+{
+    WLL_DEBUG_EXECUTE(global_log << "_data_copy_n()\n");
+    WLL_ASSERT(src_ptr != nullptr && dest_ptr != nullptr);
+    WLL_ASSERT((void*)src_ptr != (void*)dest_ptr); // cannot copy to itself
+    if (count > 0)
+    {
+        for (size_t i = 0; i < count; ++i)
+            dest_ptr[i] = _mtype_cast<DestType>(src_ptr[i]);
+    }
+    WLL_DEBUG_EXECUTE(global_log << "_data_copy_n()\n");
+}
 
 
 #define MType_Void -1
@@ -194,18 +295,15 @@ public:
         WLL_ASSERT(access_ == memory_type::owned ||
                    access_ == memory_type::proxy ||
                    access_ == memory_type::shared);
-
-        size_ = global_lib_data->MTensor_getFlattenedLength(mtensor);
+        
         const mint* dims_ptr = global_lib_data->MTensor_getDimensions(mtensor);
-        for (size_t i = 0; i < _rank; ++i)
-            dims_[i] = size_t(dims_ptr[i]);
+        std::copy_n(dims_ptr, _rank, dims_.begin());
+        size_ = global_lib_data->MTensor_getFlattenedLength(mtensor);
 
         void* src_ptr = nullptr;
         bool  do_copy = false;
         int   mtype   = int(global_lib_data->MTensor_getType(mtensor));
-        WLL_ASSERT(mtype == MType_Integer ||
-                   mtype == MType_Real    ||
-                   mtype == MType_Complex);
+        WLL_ASSERT(mtype == MType_Integer || mtype == MType_Real || mtype == MType_Complex);
 
         if (mtype == MType_Integer)
         {
@@ -271,11 +369,9 @@ public:
             constexpr int mtype = derive_tensor_data_type<value_type>::strict_type_v;
             if (mtype == MType_Void)
                 throw library_type_error(WLL_CURRENT_FUNCTION"\nvalue_type cannot be strictly matched to any MType.");
-            std::array<mint, _rank> mt_dims;
-            for (size_t i = 0; i < _rank; ++i)
-                mt_dims[i] = dims_[i];
             WLL_DEBUG_EXECUTE(global_log << "tensor(_dims_t, ::manual)\n");
-            int err = global_lib_data->MTensor_new(mtype, _rank, mt_dims.data(), &mtensor_);
+            int err = global_lib_data->MTensor_new(
+                mtype, _rank, reinterpret_cast<mint*>(dims_.data()), &mtensor_);
             if (err != LIBRARY_NO_ERROR)
                 throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
             if constexpr (mtype == MType_Integer)
@@ -545,13 +641,6 @@ public:
     }
 
 private:
-    static size_t _flattened_size(_dims_t dims) noexcept
-    {
-        size_t size = 1;
-        for (size_t i = 0; i < _rank; ++i)
-            size *= dims[i];
-        return size;
-    }
 
     template<typename T>
     static _dims_t _convert_to_dims_array(std::initializer_list<T> dims)
@@ -559,83 +648,8 @@ private:
         static_assert(std::is_integral_v<T>, "dimensions should be of integral types");
         WLL_ASSERT(dims.size() == _rank);
         _dims_t dims_array;
-        for (size_t i = 0; i < _rank; ++i)
-            dims_array[i] = size_t(*(dims.begin() + i));
+        std::copy_n(dims.begin(), _rank, dims_array.begin());
         return dims_array;
-    }
-
-    template<typename Target, typename Source>
-    static Target _mtype_cast(Source value)
-    {
-        if constexpr (is_std_complex_v<Target>)
-        {
-            return Target(static_cast<typename Target::value_type>(value),
-                          static_cast<typename Target::value_type>(0));
-        }
-        else if constexpr (std::is_same_v<mcomplex, Target>)
-        {
-            mcomplex result;
-            mcreal(result) = static_cast<mreal>(value.real());
-            mcimag(result) = static_cast<mreal>(0);
-            return result;
-        }
-        else
-        {
-            return static_cast<Target>(value);
-        }
-    }
-
-    template<typename Target>
-    static Target _mtype_cast(mcomplex value)
-    {
-        if constexpr (is_std_complex_v<Target>)
-        {
-            return Target(static_cast<typename Target::value_type>(mcreal(value)),
-                          static_cast<typename Target::value_type>(mcimag(value)));
-        }
-        else if constexpr (std::is_same_v<mcomplex, Target>)
-        {
-            return value;
-        }
-        else
-        {
-            WLL_ASSERT(false); // complex type can only be converted to complex type
-            return Target{};
-        }
-    }
-
-    template<typename Target, typename T>
-    static Target _mtype_cast(std::complex<T> value)
-    {
-        if constexpr (is_std_complex_v<Target>)
-        {
-            return Target(static_cast<typename Target::value_type>(value.real()),
-                          static_cast<typename Target::value_type>(value.imag()));
-        }
-        else if constexpr (std::is_same_v<mcomplex, Target>)
-        {
-            mcomplex result;
-            mcreal(result) = static_cast<mreal>(value.real());
-            mcimag(result) = static_cast<mreal>(value.imag());
-            return result;
-        }
-        else
-        {
-            WLL_ASSERT(false); // complex type can only be converted to complex type
-            return Target{};
-        }
-    }
-
-    template<typename SrcType, typename DestType>
-    static void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_ptr)
-    {
-        WLL_DEBUG_EXECUTE(global_log << "tensor::data_copy_n()\n");
-        WLL_ASSERT(src_ptr != nullptr && dest_ptr != nullptr);
-        WLL_ASSERT((void*)src_ptr != (void*)dest_ptr); // cannot copy to itself
-        if (count > 0)
-            for (size_t i = 0; i < count; ++i)
-                dest_ptr[i] = _mtype_cast<DestType>(src_ptr[i]);
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::data_copy_n()\n");
     }
 
     template<size_t I = 0, typename Dims>
@@ -694,16 +708,13 @@ private:
         WLL_ASSERT(access_ != memory_type::empty);
         WLL_DEBUG_EXECUTE(global_log << "tensor::_get_mtensor_lvalue()\n");
 
-        std::array<mint, _rank> mt_dims;
-        for (size_t i = 0; i < _rank; ++i)
-            mt_dims[i] = dims_[i];
-
         using mtype = typename derive_tensor_data_type<value_type>::convert_type;
         constexpr int mtype_v = derive_tensor_data_type<value_type>::convert_type_v;
         static_assert(!std::is_same_v<void, mtype>, "invalid data type to convert to MType");
 
         MTensor ret_tensor = nullptr;
-        int err = global_lib_data->MTensor_new(mtype_v, _rank, mt_dims.data(), &ret_tensor);
+        int err = global_lib_data->MTensor_new(
+            mtype_v, _rank, reinterpret_cast<mint*>(dims_.data()), &ret_tensor);
         if (err != LIBRARY_NO_ERROR)
             throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
         if constexpr (mtype_v == MType_Integer)
@@ -1007,6 +1018,7 @@ EXTERN_C DLLEXPORT inline mint WolframLibrary_getVersion()
 EXTERN_C DLLEXPORT inline int  WolframLibrary_initialize(WolframLibraryData lib_data)
 {
     wll::global_lib_data  = lib_data;
+    wll::global_sparse_fn = wll::global_lib_data->sparseLibraryFunctions;
     wll::global_exception = wll::exception_status{};
     wll::global_log.clear();
     return 0;
