@@ -9,6 +9,7 @@
 #include <array>
 #include <complex>
 #include <exception>
+#include <iterator>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -22,7 +23,7 @@
 
 namespace wll
 {
- 
+
 
 #ifdef NDEBUG
 #define WLL_ASSERT(x) ((void)0)
@@ -90,6 +91,11 @@ struct library_memory_error : library_error
     library_memory_error(std::string message ={}) :
         library_error(LIBRARY_MEMORY_ERROR, message) {}
 };
+struct library_function_error : library_error
+{
+    library_function_error(std::string message ={}) :
+        library_error(LIBRARY_FUNCTION_ERROR, message) {}
+};
 
 struct log_stringstream_t
 {
@@ -153,6 +159,19 @@ struct is_std_complex<std::complex<T>> :
 template<typename Complex>
 constexpr bool is_std_complex_v = is_std_complex<Complex>::value;
 
+template<typename Complex>
+struct complex_value
+{
+    using type = void;
+};
+template<typename T>
+struct complex_value<std::complex<T>>
+{
+    using type = T;
+};
+template<typename Complex>
+using complex_value_t = typename complex_value<Complex>::type;
+
 template<typename>
 constexpr bool _always_false_v = false;
 
@@ -165,25 +184,44 @@ inline size_t _flattened_size(const std::array<size_t, Size>& dims) noexcept
     return size;
 }
 
+template<size_t Rank, typename T>
+static std::array<size_t, Rank> _convert_to_dims_array(std::initializer_list<T> dims)
+{
+    static_assert(std::is_integral_v<T>, "dimensions should be of integral types");
+    WLL_ASSERT(dims.size() == Rank);
+    std::array<size_t, Rank> dims_array;
+    std::copy_n(dims.begin(), Rank, dims_array.begin());
+    return dims_array;
+}
+
+template<typename X, typename Y>
+auto _add_if_negative(X val_x, Y val_y)
+{
+    if constexpr (!std::is_signed_v<X>)
+        return Y(val_x);
+    else if (val_x < X(0))
+        return Y(val_x) + val_y;
+    else
+        return Y(val_x);
+}
+
 template<typename Target, typename Source>
 inline Target _mtype_cast(Source value)
 {
-    if constexpr (is_std_complex_v<Target>)
-    {
-        return Target(static_cast<typename Target::value_type>(value),
-                      static_cast<typename Target::value_type>(0));
-    }
-    else if constexpr (std::is_same_v<mcomplex, Target>)
-    {
-        mcomplex result;
-        mcreal(result) = static_cast<mreal>(value.real());
-        mcimag(result) = static_cast<mreal>(0);
-        return result;
-    }
-    else
-    {
-        return static_cast<Target>(value);
-    }
+    //if constexpr (is_std_complex_v<Target>)
+    //{
+    //    using T = complex_value_t<Target>;
+    //    return Target(static_cast<T>(value),
+    //                  static_cast<T>(0));
+    //}
+    //if constexpr (std::is_same_v<mcomplex, Target>)
+    //{
+    //    mcomplex result;
+    //    mcreal(result) = static_cast<mreal>(value.real());
+    //    mcimag(result) = static_cast<mreal>(0);
+    //    return result;
+    //}
+    return static_cast<Target>(value);
 }
 
 template<typename Target>
@@ -194,15 +232,12 @@ inline Target _mtype_cast(mcomplex value)
         return Target(static_cast<typename Target::value_type>(mcreal(value)),
                       static_cast<typename Target::value_type>(mcimag(value)));
     }
-    else if constexpr (std::is_same_v<mcomplex, Target>)
+    if constexpr (std::is_same_v<mcomplex, Target>)
     {
         return value;
     }
-    else
-    {
-        WLL_ASSERT(false); // complex type can only be converted to complex type
-        return Target{};
-    }
+    WLL_ASSERT(false); // complex type can only be converted to complex type
+    return Target{};
 }
 
 template<typename Target, typename T>
@@ -231,10 +266,10 @@ template<typename SrcType, typename DestType>
 inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_ptr)
 {
     WLL_DEBUG_EXECUTE(global_log << "_data_copy_n()\n");
-    WLL_ASSERT(src_ptr != nullptr && dest_ptr != nullptr);
-    WLL_ASSERT((void*)src_ptr != (void*)dest_ptr); // cannot copy to itself
     if (count > 0)
     {
+        WLL_ASSERT(src_ptr != nullptr && dest_ptr != nullptr);
+        WLL_ASSERT((void*)src_ptr != (void*)dest_ptr); // cannot copy to itself
         for (size_t i = 0; i < count; ++i)
             dest_ptr[i] = _mtype_cast<DestType>(src_ptr[i]);
     }
@@ -295,7 +330,7 @@ public:
         WLL_ASSERT(access_ == memory_type::owned ||
                    access_ == memory_type::proxy ||
                    access_ == memory_type::shared);
-        
+
         const mint* dims_ptr = global_lib_data->MTensor_getDimensions(mtensor);
         std::copy_n(dims_ptr, _rank, dims_.begin());
         size_ = global_lib_data->MTensor_getFlattenedLength(mtensor);
@@ -383,9 +418,9 @@ public:
         }
     }
 
-    template<typename T>
-    tensor(std::initializer_list<T> dims, memory_type access = memory_type::owned) :
-        tensor(_convert_to_dims_array(dims), access) {}
+    template<typename U>
+    tensor(std::initializer_list<U> dims, memory_type access = memory_type::owned) :
+        tensor(_convert_to_dims_array<_rank>(dims), access) {}
 
     tensor(const tensor& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
@@ -406,8 +441,8 @@ public:
         WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with member swap\n");
     }
 
-    template<typename OtherType>
-    tensor(const tensor<OtherType, _rank>& other) :
+    template<typename U>
+    tensor(const tensor<U, _rank>& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
         WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with data copy, difference types\n");
@@ -417,8 +452,8 @@ public:
         _data_copy_n(other.ptr_, size_, ptr_);
     }
 
-    template<typename OtherType>
-    tensor(tensor<OtherType, _rank>&& other) :
+    template<typename U>
+    tensor(tensor<U, _rank>&& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
         WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with data copy, difference types\n");
@@ -475,8 +510,8 @@ public:
         return *this;
     }
 
-    template<typename OtherType>
-    tensor& operator=(const tensor<OtherType, _rank>& other)
+    template<typename U>
+    tensor& operator=(const tensor<U, _rank>& other)
     {
         WLL_ASSERT(other.access_ != memory_type::empty); // other is empty
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
@@ -487,8 +522,8 @@ public:
         return *this;
     }
 
-    template<typename OtherType>
-    tensor& operator=(tensor<OtherType, _rank>&& other)
+    template<typename U>
+    tensor& operator=(tensor<U, _rank>&& other)
     {
         WLL_ASSERT(other.access_ != memory_type::empty); // other is empty
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
@@ -537,28 +572,65 @@ public:
         return dims_[level];
     }
 
+    _ptr_t data() noexcept
+    {
+        return this->ptr_;
+    }
+
+    _const_ptr_t data() const noexcept
+    {
+        return this->ptr_;
+    }
+
+    bool operator==(const tensor<value_type, _rank>& other) const
+    {
+        if (this->dims_ != other.dims_)
+            return false;
+        if (this->ptr_ == other.ptr_)
+            return true;
+        return std::equal(this->cbegin(), this->cend(), other.cbegin());
+    }
+
     template<typename... Idx>
     value_type at(Idx... idx) const
     {
+        static_assert(sizeof...(idx) == _rank, "");
         return (*this)[_get_flat_idx(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type& at(Idx... idx)
     {
+        static_assert(sizeof...(idx) == _rank, "");
         return (*this)[_get_flat_idx(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type operator()(Idx... idx) const
     {
+        static_assert(sizeof...(idx) == _rank, "");
         return (*this)[_get_flat_idx_unsafe(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type& operator()(Idx... idx)
     {
+        static_assert(sizeof...(idx) == _rank, "");
         return (*this)[_get_flat_idx_unsafe(std::make_tuple(idx...))];
+    }
+    
+    template<typename IdxTuple>
+    value_type& _tuple_at(const IdxTuple& idx_tuple)
+    {
+        static_assert(std::tuple_size_v<IdxTuple> == _rank, "");
+        return this->_tuple_at_impl(idx_tuple, std::make_index_sequence<_rank>{});
+    }
+
+    template<typename IdxTuple>
+    value_type _tuple_at(const IdxTuple& idx_tuple) const
+    {
+        static_assert(std::tuple_size_v<IdxTuple> == _rank, "");
+        return this->_tuple_at_impl(idx_tuple, std::make_index_sequence<_rank>{});
     }
 
     value_type operator[](size_t idx) const
@@ -640,17 +712,56 @@ public:
 
     }
 
-private:
-
-    template<typename T>
-    static _dims_t _convert_to_dims_array(std::initializer_list<T> dims)
+    template<size_t Level = _rank - 1, typename IdxTuple>
+    size_t _get_flat_idx(const IdxTuple& idx_tuple) const
     {
-        static_assert(std::is_integral_v<T>, "dimensions should be of integral types");
-        WLL_ASSERT(dims.size() == _rank);
-        _dims_t dims_array;
-        std::copy_n(dims.begin(), _rank, dims_array.begin());
-        return dims_array;
+        auto plain_idx = std::get<Level>(idx_tuple);
+        using plain_type = decltype(plain_idx);
+        static_assert(std::is_integral_v<plain_type>, "index must be of an integral type");
+
+        size_t unsigned_idx = size_t(plain_idx);
+        if constexpr (std::is_signed_v<plain_type>)
+            if (plain_idx < plain_type(0))
+                unsigned_idx += dims_[Level];
+        if (unsigned_idx >= dims_[Level])
+            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+        if constexpr (Level == 0)
+            return unsigned_idx;
+        else
+            return _get_flat_idx<Level - 1>(idx_tuple) * dims_[Level] + unsigned_idx;
     }
+
+    template<size_t Level = _rank - 1, typename IdxTuple>
+    size_t _get_flat_idx_unsafe(const IdxTuple& idx_tuple) const noexcept
+    {
+        auto plain_idx = std::get<Level>(idx_tuple);
+        using plain_type = decltype(plain_idx);
+        static_assert(std::is_integral_v<plain_type>, "index must be of an integral type");
+
+        size_t unsigned_idx = size_t(plain_idx);
+        if constexpr (std::is_signed_v<plain_type>)
+            if (plain_idx < plain_type(0))
+                unsigned_idx += dims_[Level];
+        WLL_ASSERT(unsigned_idx < dims_[Level]);
+        if constexpr (Level == 0)
+            return unsigned_idx;
+        else
+            return _get_flat_idx_unsafe<Level - 1>(idx_tuple) * dims_[Level] + unsigned_idx;
+    }
+
+    template<typename IdxTuple, size_t... Is>
+    value_type& _tuple_at_impl(const IdxTuple& idx_tuple, std::index_sequence<Is...>)
+    {
+        return this->operator()(std::get<Is>(idx_tuple)...);
+    }
+
+    template<typename IdxTuple, size_t... Is>
+    value_type _tuple_at_impl(const IdxTuple& idx_tuple, std::index_sequence<Is...>) const
+    {
+        return this->operator()(std::get<Is>(idx_tuple)...);
+    }
+
+private:
 
     template<size_t I = 0, typename Dims>
     bool _has_same_dims(const Dims* other_dims)
@@ -714,7 +825,7 @@ private:
 
         MTensor ret_tensor = nullptr;
         int err = global_lib_data->MTensor_new(
-            mtype_v, _rank, reinterpret_cast<mint*>(dims_.data()), &ret_tensor);
+            mtype_v, _rank, reinterpret_cast<mint*>(const_cast<size_t*>(dims_.data())), &ret_tensor);
         if (err != LIBRARY_NO_ERROR)
             throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
         if constexpr (mtype_v == MType_Integer)
@@ -762,42 +873,6 @@ private:
         WLL_DEBUG_EXECUTE(global_log << "leaving tensor::_swap_pointers()\n");
     }
 
-    template<size_t Level = _rank - 1, typename IdxTuple>
-    size_t _get_flat_idx(const IdxTuple& idx_tuple) const
-    {
-        auto plain_idx = std::get<Level>(idx_tuple);
-        using plain_type = decltype(plain_idx);
-        static_assert(std::is_integral_v<plain_type>, "index must be of an integral type");
-
-        size_t unsigned_idx = size_t(plain_idx);
-        if constexpr (std::is_signed_v<plain_type>)
-            if (plain_idx < plain_type(0))
-                unsigned_idx += dims_[Level];
-        if (unsigned_idx >= dims_[Level])
-            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
-        if constexpr (Level == 0)
-            return unsigned_idx;
-        else
-            return _get_flat_idx<Level - 1>(idx_tuple) * dims_[Level] + unsigned_idx;
-    }
-
-    template<size_t Level = _rank - 1, typename IdxTuple>
-    size_t _get_flat_idx_unsafe(const IdxTuple& idx_tuple) const noexcept
-    {
-        auto plain_idx = std::get<Level>(idx_tuple);
-        using plain_type = decltype(plain_idx);
-        static_assert(std::is_integral_v<plain_type>, "index must be of an integral type");
-
-        size_t unsigned_idx = size_t(plain_idx);
-        if constexpr (std::is_signed_v<plain_type>)
-            if (plain_idx < plain_type(0))
-                unsigned_idx += dims_[Level];
-        WLL_ASSERT(unsigned_idx < dims_[Level]);
-        if constexpr (Level == 0)
-            return unsigned_idx;
-        else
-            return _get_flat_idx_unsafe<Level - 1>(idx_tuple) * dims_[Level] + unsigned_idx;
-    }
 
 private:
     _dims_t dims_;
@@ -812,8 +887,30 @@ using list = tensor<T, 1>;
 template<typename T>
 using matrix = tensor<T, 2>;
 
+template<typename T>
+MTensor _scalar_mtensor(const T& value)
+{
+    using mtype = typename derive_tensor_data_type<T>::convert_type;
+    constexpr int mtype_v = derive_tensor_data_type<T>::convert_type_v;
+    static_assert(!std::is_same_v<void, mtype>, "invalid data type to convert to MType");
 
-enum tensor_passing_by
+    MTensor mtensor;
+    int err = global_lib_data->MTensor_new(mtype_v, 0, nullptr, &mtensor);
+    if (err != LIBRARY_NO_ERROR)
+        throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
+
+    if constexpr (mtype_v == MType_Integer)
+        *(global_lib_data->MTensor_getIntegerData(mtensor)) = _mtype_cast<mtype>(value);
+    else if constexpr (mtype_v == MType_Real)
+        *(global_lib_data->MTensor_getRealData(mtensor)) = _mtype_cast<mtype>(value);
+    else // mtype_v == MType_Complex
+        *(global_lib_data->MTensor_getComplexData(mtensor)) = _mtype_cast<mtype>(value);
+
+    return mtensor;
+}
+
+
+enum class tensor_passing_by
 {
     value,     //  Automatic   tensor<T,R>
     reference, // "Shared"     tensor<T,R>&
@@ -840,11 +937,1299 @@ template<typename Tensor>
 constexpr tensor_passing_by tensor_passing_category_v = tensor_passing_category<Tensor>::value;
 
 
+
+template<typename T, size_t Rank, bool IsConst>
+class _sparse_element;
+
+template<typename T, size_t Rank, bool IsConst>
+class _sparse_iterator;
+
+template<typename T, size_t Rank>
+class sparse_array
+{
+public:
+    using value_type   = T;
+    static constexpr size_t _rank = Rank;
+    using _ptr_t       = value_type*;
+    using _const_ptr_t = const value_type*;
+    using _dims_t      = std::array<size_t, _rank>;
+    using _idx_t       = std::array<size_t, _rank>;
+    static constexpr size_t _column_size = (Rank >= 2) ? (Rank - 1) : 1;
+    using _column_t    = std::array<size_t, _column_size>;
+    static_assert(_rank > 0, "");
+
+    using iterator        = _sparse_iterator<value_type, _rank, false>;
+    using const_iterator  = _sparse_iterator<value_type, _rank, true>;
+    using reference       = _sparse_element<value_type, _rank, false>;
+    using const_reference = _sparse_element<value_type, _rank, true>;
+    friend class reference;
+    friend class const_reference;
+
+    sparse_array() = default;
+
+    sparse_array(MSparseArray msparse, memory_type access) :
+        access_{access}
+    {
+        WLL_ASSERT(_rank == global_sparse_fn->MSparseArray_getRank(msparse));
+        WLL_ASSERT(access_ == memory_type::owned ||
+                   access_ == memory_type::proxy ||
+                   access_ == memory_type::shared);
+
+        const mint* dims_ptr = global_sparse_fn->MSparseArray_getDimensions(msparse);
+        std::copy_n(dims_ptr, _rank, dims_.begin());
+        size_ = _flattened_size(dims_);
+
+        MTensor m_values   = *(global_sparse_fn->MSparseArray_getExplicitValues(msparse));
+        MTensor m_columns  = *(global_sparse_fn->MSparseArray_getColumnIndices(msparse));
+        MTensor m_row_idx  = *(global_sparse_fn->MSparseArray_getRowPointers(msparse));
+        MTensor m_implicit = *(global_sparse_fn->MSparseArray_getImplicitValue(msparse));
+        nz_size_ = (m_values == nullptr) ? 0 : *(global_lib_data->MTensor_getDimensions(m_values));
+
+        mint* m_columns_ptr  = global_lib_data->MTensor_getIntegerData(m_columns); // can be nullptr
+        mint* m_row_idx_ptr  = global_lib_data->MTensor_getIntegerData(m_row_idx); // can be nullptr
+        void* m_values_ptr   = nullptr;  // type dependent
+        bool  do_copy = false;
+        int   mtype   = int(global_lib_data->MTensor_getType(m_implicit));
+        WLL_ASSERT(mtype == MType_Integer ||
+                   mtype == MType_Real    ||
+                   mtype == MType_Complex);
+
+        if (mtype == MType_Integer)
+        {
+            m_values_ptr = reinterpret_cast<void*>(global_lib_data->MTensor_getIntegerData(m_values));
+            do_copy      = !is_same_layout_v<mint, value_type>;
+            this->implicit_value_ =
+                _mtype_cast<value_type>(*(global_lib_data->MTensor_getIntegerData(m_implicit)));
+        }
+        else if (mtype == MType_Real)
+        {
+            m_values_ptr = reinterpret_cast<void*>(global_lib_data->MTensor_getRealData(m_values));
+            do_copy      = !is_same_layout_v<mreal, value_type>;
+            this->implicit_value_ =
+                _mtype_cast<value_type>(*(global_lib_data->MTensor_getRealData(m_implicit)));
+        }
+        else // mtype == MType_Complex
+        {
+            m_values_ptr = reinterpret_cast<void*>(global_lib_data->MTensor_getComplexData(m_values));
+            do_copy      = !is_same_layout_v<mcomplex, value_type>;
+            this->implicit_value_ =
+                _mtype_cast<value_type>(*(global_lib_data->MTensor_getComplexData(m_implicit)));
+        }
+
+        if (do_copy)
+        {
+            WLL_ASSERT(access_ != memory_type::shared);
+            this->values_vec_.resize(_nz_size());
+            this->columns_vec_.resize(_nz_size());
+            this->row_idx_vec_.resize(_row_idx_size());
+
+            if (mtype == MType_Integer)
+                _data_copy_n(reinterpret_cast<mint*>(m_values_ptr), _nz_size(), values_vec_.data());
+            else if (mtype == MType_Real)
+                _data_copy_n(reinterpret_cast<mreal*>(m_values_ptr), _nz_size(), values_vec_.data());
+            else // mtype == MType_Complex
+                _data_copy_n(reinterpret_cast<mcomplex*>(m_values_ptr), _nz_size(), values_vec_.data());
+
+            std::copy_n(reinterpret_cast<_column_t*>(m_columns_ptr), _nz_size(), columns_vec_.data());
+            std::copy_n(reinterpret_cast<size_t*>(m_row_idx_ptr), _row_idx_size(), row_idx_vec_.data());
+
+            this->access_  = memory_type::owned;
+            this->_update_pointers();
+        }
+        else // do_copy == false
+        {
+            this->values_  = reinterpret_cast<_ptr_t>(m_values_ptr);
+            this->columns_ = reinterpret_cast<_column_t*>(m_columns_ptr);
+            this->row_idx_ = reinterpret_cast<size_t*>(m_row_idx_ptr);
+
+            if (access == memory_type::owned)
+                this->_convert_to_owned();
+            else if (access == memory_type::shared)
+                this->msparse_ = msparse;
+        }
+    }
+
+    sparse_array(const tensor<value_type, _rank>& other, value_type value = value_type{}, 
+                 double reserve_density = -1.0) :
+        dims_{other.dimensions()}, size_{other.size()},
+        implicit_value_{value}, access_{memory_type::owned}
+    {
+        constexpr size_t reserve_multiplier = 2;
+        constexpr size_t min_reserve_size   = 1000;
+        constexpr size_t reserve_sqrt_size  = (1000 / 2) * (1000 / 2);
+
+        size_t reserve_size = 0;
+        if (0.0 <= reserve_density && reserve_density <= 1.0)
+            reserve_size = size_t(std::round(reserve_density * size_));
+        else if (size_ <= min_reserve_size)
+            reserve_size = size_;
+        else if (size_ <= reserve_sqrt_size)
+            reserve_size = min_reserve_size;
+        else
+            reserve_size = size_t(std::round(std::sqrt(size_) * reserve_multiplier));
+
+        this->columns_vec_.reserve(reserve_size);
+        this->values_vec_.reserve(reserve_size);
+        this->row_idx_vec_.reserve(this->_row_idx_size());
+        this->row_idx_vec_.push_back(0);
+
+        if constexpr (_rank == 1)
+        {
+            const value_type* data_ptr = other.data();
+            for (size_t i_col = 1; i_col <= dims_[0]; ++i_col, ++data_ptr)
+            {
+                if (*data_ptr != this->implicit_value_)
+                {
+                    this->columns_vec_.push_back(_column_t({i_col}));
+                    this->values_vec_.push_back(*data_ptr);
+                }
+            }
+            this->nz_size_ = values_vec_.size();
+            this->row_idx_vec_.push_back(nz_size_);
+        }
+        else if (_rank == 2)
+        {
+            size_t i_nz = 0;
+            const value_type* data_ptr = other.data();
+            for (size_t i_row = 0; i_row < dims_[0]; ++i_row)
+            {
+                for (size_t i_col = 1; i_col <= dims_[1]; ++i_col, ++data_ptr)
+                {
+                    if (*data_ptr != this->implicit_value_)
+                    {
+                        this->columns_vec_.push_back(_column_t({i_col}));
+                        this->values_vec_.push_back(*data_ptr);
+                        ++i_nz;
+                    }
+                }
+                this->row_idx_vec_.push_back(i_nz);
+            }
+            this->nz_size_ = i_nz;
+        }
+        else // _rank >= 3
+        {
+            size_t i_nz = 0;
+            const value_type* data_ptr = other.data();
+            for (size_t i_row = 0; i_row < dims_[0]; ++i_row)
+            {
+                this->_construct_from_tensor_impl<1>(i_nz, data_ptr);
+                this->row_idx_vec_.push_back(i_nz);
+            }
+            this->nz_size_ = i_nz;
+        }
+        this->_update_pointers();
+    }
+
+    sparse_array(_dims_t dims, value_type value = value_type{}) :
+        dims_{dims}, size_{_flattened_size(dims)}, nz_size_{size_t(0)},
+        implicit_value_{value}, access_{memory_type::owned}
+    {
+        this->row_idx_vec_.resize(_row_idx_size(), size_t(0));
+        this->_update_pointers();
+    }
+
+    template<typename U>
+    sparse_array(std::initializer_list<U> dims, value_type value = value_type{}) :
+        sparse_array(_convert_to_dims_array<_rank>(dims), value) {}
+
+    template<bool UsePointers, bool SwapColRow, bool SwapValues, bool SameType, typename Other>
+    void _ctor_impl(Other&& other)
+    {
+        WLL_ASSERT(other.access_ == memory_type::owned ||
+                   other.access_ == memory_type::proxy ||
+                   other.access_ == memory_type::shared);
+        WLL_ASSERT(this->dims_ == other.dims_);
+        WLL_ASSERT(this->size_ == other.size_);
+
+        this->nz_size_ = other.nz_size_;
+        this->access_  = memory_type::owned;
+        if constexpr (SameType)
+            this->implicit_value_ = other.implicit_value_;
+        else
+            this->implicit_value_ = _mtype_cast<value_type>(other.implicit_value_);
+
+        if constexpr (UsePointers)
+        {
+            static_assert(SameType, "");
+            this->values_  = other.values_;
+            this->columns_ = other.columns_;
+            this->row_idx_ = other.row_idx_;
+            this->_convert_to_owned();
+        }
+        else
+        {
+            if constexpr (SwapColRow)
+            {
+                std::swap(this->columns_vec_, other.columns_vec_);
+                std::swap(this->row_idx_vec_, other.row_idx_vec_);
+            }
+            else // CopyColRow
+            {
+                this->columns_vec_ = std::vector<_column_t>(other.columns_, other.columns_ + _nz_size());
+                this->row_idx_vec_ = std::vector<size_t>(other.row_idx_, other.row_idx_ + _row_idx_size());
+            }
+
+            if constexpr (SwapValues)
+            {
+                static_assert(SameType, "");
+                std::swap(this->values_vec_, other.values_vec_);
+                this->_update_pointers();
+            }
+            else if constexpr (SameType) // CopyValues
+            {
+                this->values_vec_ = std::vector<size_t>(other.values_, other.values_ + _nz_size());
+                this->_update_pointers();
+            }
+            else // DifferentType CopyValues
+            {
+                this->values_vec_.resize(_nz_size());
+                _data_copy_n(other.values_, _nz_size(), this->values_vec_.data());
+                this->_update_pointers();
+                this->_refresh_implicit();
+            }
+        }
+    }
+
+    sparse_array(const sparse_array& other) :
+        dims_{other.dims_}, size_{other.size_}
+    {
+        if (other.access_ == memory_type::owned)
+            this->_ctor_impl<false, false, false, true>(other);
+        else // proxy or shared
+            this->_ctor_impl<true, false, false, true>(other);
+    }
+
+    sparse_array(sparse_array&& other) :
+        dims_{other.dims_}, size_{other.size_}
+    {
+        if (other.access_ == memory_type::owned)
+            this->_ctor_impl<false, true, true, true>(std::move(other));
+        else // proxy or shared
+            this->_ctor_impl<true, false, false, true>(other);
+    }
+
+    template<typename U>
+    sparse_array(const sparse_array<U, _rank>& other) :
+        dims_{other.dims_}, size_{other.size_}
+    {
+        this->_ctor_impl<false, false, false, false>(other);
+    }
+
+    template<typename U>
+    sparse_array(sparse_array<U, _rank>&& other) :
+        dims_{other.dims_}, size_{other.size_}
+    {
+        this->_ctor_impl<false, false, false, false>(std::move(other));
+    }
+
+    sparse_array& operator=(const sparse_array& other)
+    {
+        WLL_ASSERT(this->access_ != memory_type::empty);
+        WLL_ASSERT(other.access_ != memory_type::empty);
+        if (this->values_ != other.values_)
+        {
+            if (!(this->_has_same_dims(other.dims_.data())))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+            if (this->access_ == memory_type::shared)
+            {
+                if (this->nz_size_ != other.nz_size_)
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                if (this->implicit_value_ != other.implicit_value_)
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
+                    !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                std::copy_n(other.values_, _nz_size(), this->values_);
+            }
+            else if (other.access_ == memory_type::owned)
+                this->_ctor_impl<false, false, false, true>(other);
+            else // other.access_ == proxy / shared
+                this->_ctor_impl<true, false, false, true>(other);
+        }
+        else
+        {
+            //do nothing
+        }
+    }
+
+    sparse_array& operator=(sparse_array&& other)
+    {
+        WLL_ASSERT(this->access_ != memory_type::empty);
+        WLL_ASSERT(other.access_ != memory_type::empty);
+        if (this->values_ != other.values_)
+        {
+            if (!(this->_has_same_dims(other.dims_.data())))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+            if (this->access_ == memory_type::shared)
+            {
+                if (this->nz_size_ != other.nz_size_)
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                if (this->implicit_value_ != other.implicit_value_)
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
+                    !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                std::copy_n(other.values_, _nz_size(), this->values_);
+            }
+            else if (other.access_ == memory_type::owned)
+                this->_ctor_impl<false, true, true, true>(other);
+            else // other.access_ == proxy / shared
+                this->_ctor_impl<true, false, false, true>(other);
+        }
+        else
+        {
+            //do nothing
+        }
+    }
+
+    template<typename U>
+    sparse_array& operator=(const sparse_array<U, _rank>& other)
+    {
+        WLL_ASSERT(this->access_ != memory_type::empty);
+        WLL_ASSERT(other.access_ != memory_type::empty);
+        WLL_ASSERT((void*)this->values != (void*)other.values_);
+        if (!(this->_has_same_dims(other.dims_.data())))
+            throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+        if (this->access_ == memory_type::shared)
+        {
+            if (this->nz_size_ != other.nz_size_)
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+            if (this->implicit_value_ != _mtype_cast<value_type>(other.implicit_value_))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+            if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
+                !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+            _data_copy_n(other.values_, _nz_size(), this->values_);
+        }
+        else
+        {
+            this->_ctor_impl<false, false, false, false>(other);
+        }
+    }
+
+    template<typename U>
+    sparse_array& operator=(sparse_array<U, _rank>&& other)
+    {
+        WLL_ASSERT(this->access_ != memory_type::empty);
+        WLL_ASSERT(other.access_ != memory_type::empty);
+        WLL_ASSERT((void*)this->values != (void*)other.values_);
+        if (!(this->_has_same_dims(other.dims_.data())))
+            throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+        if (this->access_ == memory_type::shared)
+        {
+            if (this->nz_size_ != other.nz_size_)
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+            if (this->implicit_value_ != _mtype_cast<value_type>(other.implicit_value_))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+            if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
+                !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
+                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+            _data_copy_n(other.values_, _nz_size(), this->values_);
+        }
+        else
+        {
+            this->_ctor_impl<false, false, false, false>(other);
+        }
+    }
+
+    ~sparse_array()
+    {
+        if (this->access_ == memory_type::shared)
+            global_sparse_fn->MSparseArray_disown(this->msparse_);
+        this->values_  = nullptr;
+        this->columns_ = nullptr;
+        this->row_idx_ = nullptr;
+        this->access_  = memory_type::empty;
+        this->msparse_ = nullptr;
+    }
+
+    constexpr size_t rank() const noexcept
+    {
+        return _rank;
+    }
+
+    size_t size() const noexcept
+    {
+        return size_;
+    }
+
+    _dims_t dimensions() const noexcept
+    {
+        return dims_;
+    }
+
+    size_t dimension(size_t level) const noexcept
+    {
+        return dims_[level];
+    }
+
+    value_type implicit_value() const noexcept
+    {
+        return this->implicit_value_;
+    }
+
+    const _column_t* columns_pointer() const noexcept
+    {
+        return this->columns_;
+    }
+
+    const value_type* values_pointer() const noexcept
+    {
+        return this->values_;
+    }
+
+    const size_t* row_indices_pointer() const noexcept
+    {
+        return this->row_idx_;
+    }
+
+    bool operator==(const sparse_array<value_type, _rank>& other) const
+    {
+        if (this->dims_ != other.dims_)
+            return false;
+        if (this->implicit_value_ == other.implicit_value_)
+        {
+            if (this->_nz_size() != other._nz_size())
+                return false;
+            if (this->row_idx_ != other.row_idx_ && 
+                !std::equal(this->row_idx_, this->row_idx_ + _row_idx_size(), other.row_idx_))
+                return false;
+            if (this->values_ != other.values_ && 
+                !std::equal(this->values_, this->values_ + _nz_size(), other.values_))
+                return false;
+            if (this->columns_ != other.columns_ && 
+                !std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_))
+                return false;
+        }
+        else
+        {
+            if (this->_nz_size() + other._nz_size() < this->size())
+                return false;
+            tensor<value_type, _rank> tensor_this(*this);
+            tensor<value_type, _rank> tensor_other(other);
+            return (tensor_this == tensor_other);
+        }
+        return true;
+    }
+
+    template<typename... Idx>
+    reference operator()(Idx... idx) noexcept
+    {
+        static_assert(sizeof...(idx) == _rank, "");
+        return this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
+    }
+
+    template<typename... Idx>
+    value_type operator()(Idx... idx) const
+    {
+        static_assert(sizeof...(idx) == _rank, "");
+        const_reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
+        return value_type(ref);
+    }
+
+    template<typename... Idx>
+    reference at(Idx... idx)
+    {
+        static_assert(sizeof...(idx) == _rank, "");
+        reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
+        if (!ref._check_range())
+            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+        return ref;
+    }
+
+    template<typename... Idx>
+    value_type at(Idx... idx) const
+    {
+        static_assert(sizeof...(idx) == _rank, "");
+        const_reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
+        if (!ref._check_range())
+            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+        return value_type(ref);
+    }
+
+    const_iterator cbegin() const noexcept
+    {
+        return {*this, _idx_t{}};
+    }
+
+    const_iterator cend() const noexcept
+    {
+        _idx_t idx{{}};
+        idx[0] = this->dims_[0];
+        return {*this, idx};
+    }
+
+    const_iterator begin() const noexcept
+    {
+        return this->cbegin();
+    }
+
+    const_iterator end() const noexcept
+    {
+        return this->cend();
+    }
+
+    iterator begin() noexcept
+    {
+        return {*this, _idx_t{}};
+    }
+
+    iterator end() noexcept
+    {
+        _idx_t idx{{}};
+        idx[0] = this->dims_[0];
+        return {*this, idx};
+    }
+
+    MSparseArray get_msparse() const
+    {
+        using mtype = typename derive_tensor_data_type<value_type>::convert_type;
+        constexpr int mtype_v = derive_tensor_data_type<value_type>::convert_type_v;
+        static_assert(!std::is_same_v<void, mtype>, "invalid data type to convert to MType");
+
+        //MTensor dims = nullptr;
+        //std::array<mint, 1> dims_dims{_rank};
+        //global_lib_data->MTensor_new(MType_Integer, 1, dims_dims.data(), &dims);
+        //_data_copy_n(this->dims_.data(), _rank, global_lib_data->MTensor_getIntegerData(dims));
+
+        tensor<mint, 1> dims({_rank}, memory_type::manual);
+        dims.copy_data_from(this->dims_.data(), _rank);
+
+        tensor<mint, 2> poss({_nz_size(), _rank}, memory_type::manual);
+        std::array<mint, _rank>* poss_ptr = reinterpret_cast<std::array<mint, _rank>*>(poss.data());
+        for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
+        {
+            for (size_t i_nz = row_idx_[i_row - 1]; i_nz < row_idx_[i_row]; ++i_nz, ++poss_ptr)
+            {
+                if constexpr (_rank == 1)
+                {
+                    *reinterpret_cast<_column_t*>(&(*poss_ptr)[0]) = this->columns_[i_nz];
+                }
+                else
+                {
+                    (*poss_ptr)[0] = i_row;
+                    *reinterpret_cast<_column_t*>(&(*poss_ptr)[1]) = this->columns_[i_nz];
+                }
+            }
+        }
+
+        tensor<mtype, 1> vals({_nz_size()}, memory_type::manual);
+        vals.copy_data_from(this->values_, _nz_size());
+
+        MSparseArray msparse = nullptr;
+        int err = global_sparse_fn->MSparseArray_fromExplicitPositions(
+            std::move(poss).get_mtensor(),
+            std::move(vals).get_mtensor(),
+            std::move(dims).get_mtensor(),
+            _scalar_mtensor(_mtype_cast<mtype>(this->implicit_value_)),
+            &msparse);
+        if (err != LIBRARY_NO_ERROR)
+            throw library_error(err, WLL_CURRENT_FUNCTION"\nMSparseArray_fromExplicitPositions() failed.");
+
+
+        return msparse;
+    }
+
+    template<bool RefreshImplicit = false, typename Fn>
+    void transform(Fn fn)
+    {
+        WLL_ASSERT(_check_consistency());
+        this->implicit_value_ = static_cast<value_type>(fn(this->implicit_value_));
+        std::for_each(this->values_, this->values_ + _nz_size(),
+                      [=](auto& value) { value = static_cast<value_type>(fn(value)); });
+        if constexpr (RefreshImplicit)
+            this->_refresh_implicit();
+    }
+
+    operator tensor<value_type, _rank>() const
+    {
+        WLL_ASSERT(this->_check_consistency());
+        tensor<value_type, _rank> ret(this->dims_);
+        std::fill(ret.begin(), ret.end(), this->implicit_value_);
+
+        if constexpr (_rank == 1)
+        {
+            size_t i_nz = 0;
+            for (; i_nz < _nz_size(); ++i_nz)
+                ret._tuple_at(_make_zero_based_idx(0, i_nz)) = values_[i_nz];
+        }
+        else
+        {
+            size_t i_nz = 0;
+            for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
+            {
+                for (; i_nz < row_idx_vec_[i_row]; ++i_nz)
+                    ret._tuple_at(_make_zero_based_idx(i_row - 1, i_nz)) = values_[i_nz];
+            }
+        }
+        return ret;
+    }
+
+public:
+
+    size_t _nz_size() const noexcept
+    {
+        return this->nz_size_;
+    }
+
+    size_t _row_idx_size() const noexcept
+    {
+        return _rank == 1 ? 2 : (dims_[0] + 1);
+    }
+
+    template<size_t Level, typename... ICol>
+    void _construct_from_tensor_impl(size_t& i_nz, const value_type*& data_ptr, ICol... i_col)
+    {
+        if constexpr (Level + 1 == _rank)
+        {
+            for (size_t i_col_x = 1; i_col_x <= this->dims_[Level]; ++i_col_x, ++data_ptr)
+            {
+                if (*data_ptr != this->implicit_value_)
+                {
+                    this->columns_vec_.push_back(_column_t({i_col..., i_col_x}));
+                    this->values_vec_.push_back(*data_ptr);
+                    ++i_nz;
+                }
+            }
+        }
+        else
+        {
+            for (size_t i_col_x = 1; i_col_x <= this->dims_[Level]; ++i_col_x)
+            {
+                this->_construct_from_tensor_impl<Level + 1>(i_nz, data_ptr, i_col..., i_col_x);
+            }
+        }
+    }
+
+    template<size_t... Is>
+    _idx_t _make_zero_based_idx_impl(size_t row_idx, size_t i_nz, 
+                                     std::index_sequence<Is...>) const
+    {
+        return {row_idx, (std::get<Is>(columns_[i_nz]) - 1)...};
+    }
+
+    _idx_t _make_zero_based_idx(size_t row_idx, size_t i_nz) const
+    {
+        if constexpr (_rank == 1)
+            return {std::get<0>(columns_[i_nz]) - 1};
+        else
+            return _make_zero_based_idx_impl(
+                row_idx, i_nz, std::make_index_sequence<_column_size>{});
+    }
+
+    template<size_t I = 0, typename Dims>
+    bool _has_same_dims(const Dims* other_dims)
+    {
+        if constexpr (I + 1 == _rank)
+            return (this->dims_[I] == size_t(other_dims[I])) && _has_same_dims<I + 1, Dims>(other_dims);
+        else
+            return this->dims_[_rank - 1] == size_t(other_dims[_rank - 1]);
+    }
+
+    void _update_pointers()
+    {
+        WLL_ASSERT(access_ == memory_type::owned);
+        this->values_  = values_vec_.data();
+        this->columns_ = columns_vec_.data();
+        this->row_idx_ = row_idx_vec_.data();
+    }
+
+    bool _check_consistency() const
+    {
+        WLL_ASSERT(this->access_ == memory_type::owned ||
+                   this->access_ == memory_type::proxy ||
+                   this->access_ == memory_type::shared);
+        if (this->access_ == memory_type::owned)
+        {
+            if (values_vec_.data()  != this->values_)   assert(false);
+            if (columns_vec_.data() != this->columns_)  assert(false);
+            if (row_idx_vec_.data() != this->row_idx_)  assert(false);
+            if (values_vec_.size()  != _nz_size())      assert(false);
+            if (columns_vec_.size() != _nz_size())      assert(false);
+            if (row_idx_vec_.size() != _row_idx_size()) assert(false);
+            if (_flattened_size<_rank>(dims_) != size_) assert(false);
+        }
+        else
+        {
+            if (_flattened_size<_rank>(dims_) != size_) assert(false);
+            if (msparse_ == nullptr)                    assert(false);
+        }
+        return true;
+    }
+
+    void _convert_to_owned()
+    {
+        WLL_ASSERT(access_ == memory_type::proxy);
+        this->values_vec_.resize(_nz_size());
+        this->columns_vec_.resize(_nz_size());
+        this->row_idx_vec_.resize(_row_idx_size());
+
+        std::copy_n(values_, _nz_size(), values_vec_.begin());
+        std::copy_n(columns_, _nz_size(), columns_vec_.begin());
+        std::copy_n(row_idx_, _row_idx_size(), row_idx_vec_.begin());
+
+        this->access_  = memory_type::owned;
+        this->msparse_ = nullptr;
+        this->_update_pointers();
+    }
+
+    void _insert_explicit(size_t offset, const value_type& value,
+                          const _column_t& col_idx, size_t row_idx_offset)
+    {
+        WLL_ASSERT(offset <= this->nz_size_);
+        WLL_ASSERT(value != this->implicit_value_); // not effectively adding element
+        WLL_ASSERT(this->access_ != memory_type::shared);
+        if (this->access_ == memory_type::proxy)
+            this->_convert_to_owned();
+        values_vec_.insert(values_vec_.cbegin() + offset, value);
+        columns_vec_.insert(columns_vec_.cbegin() + offset, col_idx);
+        std::for_each(row_idx_vec_.begin() + row_idx_offset + 1, row_idx_vec_.end(),
+                      [](size_t& idx) { ++idx; });
+        ++nz_size_;
+        this->_update_pointers();
+    }
+
+    void _change_explicit(size_t offset, const value_type& value)
+    {
+        WLL_ASSERT(offset < nz_size_);
+        WLL_ASSERT(value != this->implicit_value_); // not effectively adding element
+        this->values_[offset] = value;
+    }
+
+    void _erase_explicit(size_t offset, size_t row_idx_offset)
+    {
+        WLL_ASSERT(offset < nz_size_);
+        WLL_ASSERT(this->access_ != memory_type::shared);
+        if (this->access_ == memory_type::proxy)
+            this->_convert_to_owned();
+        values_vec_.erase(values_vec_.cbegin() + offset);
+        columns_vec_.erase(columns_vec_.cbegin() + offset);
+        std::for_each(row_idx_vec_.begin() + row_idx_offset + 1, row_idx_vec_.end(),
+                      [](size_t& idx) { --idx; });
+        WLL_ASSERT(this->_check_consistency());
+    }
+
+    template<typename... Idx, size_t... Is>
+    reference _get_element_ref(std::index_sequence<Is...>, Idx... idx) noexcept
+    {
+        return {*this, {(_add_if_negative(idx, this->dims_[Is]) + column_base_correction<Is>())...}};
+    }
+
+    template<typename... Idx, size_t... Is>
+    const_reference _get_element_ref(std::index_sequence<Is...>, Idx... idx) const noexcept
+    {
+        return {*this, {(_add_if_negative(idx, this->dims_[Is]) + column_base_correction<Is>())...}};
+    }
+
+    template<size_t Level>
+    constexpr size_t column_base_correction() const
+    {
+        static_assert(Level < _rank, "");
+        return (_rank == 1 || Level > size_t(0)) ? 1 : 0;
+    }
+
+    void _refresh_implicit()
+    {
+        WLL_ASSERT(this->access_ == memory_type::owned);
+        WLL_ASSERT(this->_check_consistency());
+
+        size_t i_nz = 0;
+        size_t new_i_nz = 0;
+        for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
+        {
+            for (; i_nz < row_idx_vec_[i_row]; ++i_nz)
+            {
+                if (values_vec_[i_nz] != this->implicit_value_)
+                {
+                    values_vec_[new_i_nz]  = values_vec_[i_nz];
+                    columns_vec_[new_i_nz] = columns_vec_[i_nz];
+                    ++new_i_nz;
+                }
+            }
+            row_idx_vec_[i_row] = new_i_nz;
+        }
+        nz_size_ = new_i_nz;
+        values_vec_.resize(new_i_nz);
+        columns_vec_.resize(new_i_nz);
+        this->_update_pointers();
+    }
+
+public:
+    _dims_t    dims_;
+    size_t     size_;              // total size of the array
+    size_t     nz_size_;           // number of non-zero elements
+    value_type implicit_value_{};
+    _ptr_t     values_  = nullptr; // (nz_size_)
+    _column_t* columns_ = nullptr; // (nz_size_) * (_column_size)
+    size_t*    row_idx_ = nullptr; // (_rank == 1 ? 2 : dims_[0])
+
+    memory_type  access_  = memory_type::empty;
+    MSparseArray msparse_ = nullptr;
+    std::vector<value_type> values_vec_{};
+    std::vector<_column_t>  columns_vec_{}; // 1-based numbering
+    std::vector<size_t>     row_idx_vec_{};
+};
+
+template<typename T, size_t Rank, bool IsConst>
+class _sparse_element
+{
+public:
+    using value_type = T;
+    static constexpr size_t _rank = Rank;
+    static constexpr bool _is_const = IsConst;
+    using _idx_t    = std::array<size_t, _rank>;
+    using _sparse_t = std::conditional_t<IsConst,
+        const sparse_array<value_type, _rank>&, sparse_array<value_type, _rank>&>;
+    using _column_t = typename sparse_array<value_type, _rank>::_column_t;
+    static_assert(_rank > 0, "");
+
+    _sparse_element(_sparse_t sparse, _idx_t idx) :
+        sparse_{sparse}, idx_{idx} {}
+
+    operator value_type() const
+    {
+        const auto[is_explicit, offset] = this->_find_element();
+        return is_explicit ? sparse_.values_[offset] : sparse_.implicit_value_;
+    }
+
+    _sparse_element& operator=(const value_type& value)
+    {
+        if constexpr (_is_const)
+            WLL_ASSERT(false); // cannot assign to a const sparse array
+        else // not const
+        {
+            const auto[is_explicit, offset] = this->_find_element();
+            if (value == sparse_.implicit_value())
+            {
+                if (is_explicit)
+                {
+                    WLL_ASSERT(sparse_.access_ != memory_type::shared); // cannot erase explicit from shared
+                    sparse_._erase_explicit(offset, _row_idx_offset());
+                }
+            }
+            else // value != implicit_element
+            {
+                if (is_explicit)
+                    sparse_._change_explicit(offset, value);
+                else
+                {
+                    WLL_ASSERT(sparse_.access_ != memory_type::shared); // cannot insert explicit to shared
+                    sparse_._insert_explicit(offset, value, _col_idx_ref(), _row_idx_offset());
+                }
+            }
+        }
+        return *this;
+    }
+
+    bool _check_range() const noexcept
+    {
+        const auto& dims = sparse_.dimensions();
+        if constexpr (_rank == 1)
+        {
+            if (!(1 <= idx_[0] && idx_[0] <= dims[0]))
+                return false;
+        }
+        else
+        {
+            if (!(idx_[0] < dims[0]))
+                return false;
+            for (size_t i = 1; i < _rank; ++i)
+                if (!(1 <= idx_[i] && idx_[i] <= dims[i]))
+                    return false;
+        }
+        return true;
+    }
+
+    std::pair<bool, size_t> _find_element() const
+    {
+        WLL_ASSERT(sparse_._check_consistency());
+        WLL_ASSERT(_check_range());
+        const _column_t* columns = sparse_.columns_;
+        const _column_t* first = (_rank == 1) ?
+            columns : (columns + sparse_.row_idx_[idx_[0]]);
+        const _column_t* last = (_rank == 1) ?
+            columns + sparse_._nz_size() : (columns + sparse_.row_idx_[idx_[0] + 1]);
+        const auto[lower, upper] = std::equal_range(first, last, _col_idx_ref());
+
+        if (lower < upper)
+        { // the element is explicit
+            WLL_ASSERT(lower + 1 == upper);
+            return std::make_pair(true, lower - columns);
+        }
+        else
+        { // the element is implicit
+            WLL_ASSERT(lower == upper);
+            return std::make_pair(false, lower - columns);
+        }
+    }
+
+    size_t _row_idx_offset() const
+    {
+        return (_rank == 1) ? 0 : idx_[0];
+    }
+    const _column_t& _col_idx_ref() const
+    {
+        return *reinterpret_cast<const _column_t*>(&idx_[(_rank == 1) ? 0 : 1]);
+    }
+
+private:
+    _sparse_t sparse_;
+    _idx_t    idx_;
+};
+
+template<typename T, size_t Rank, bool IsConst>
+class _sparse_iterator
+{
+public:
+    using value_type = T;
+    static constexpr size_t _rank = Rank;
+    static constexpr bool _is_const = IsConst;
+
+    using iterator_category = std::random_access_iterator_tag;
+    using reference         = _sparse_element<value_type, _rank, _is_const>;
+    using pointer           = reference*;
+
+    using _my_type    = _sparse_iterator;
+    using _deref_type = std::conditional_t<_is_const, value_type, reference>;
+    using _idx_t      = typename reference::_idx_t;
+    using _sparse_t   = typename reference::_sparse_t;
+    using _column_t   = typename reference::_column_t;
+
+    _sparse_iterator(_sparse_t sparse, _idx_t idx) :
+        sparse_{sparse}, idx_{idx} {}
+
+    _my_type& operator+=(ptrdiff_t diff)
+    {
+        this->inc(diff);
+        return *this;
+    }
+
+    _my_type& operator-=(ptrdiff_t diff)
+    {
+        this->dec(diff);
+        return *this;
+    }
+
+    _my_type operator+(ptrdiff_t diff) const
+    {
+        _my_type ret = *this;
+        ret += diff;
+        return ret;
+    }
+
+    _my_type operator-(ptrdiff_t diff) const
+    {
+        _my_type ret = *this;
+        ret -= diff;
+        return ret;
+    }
+
+    _my_type& operator++()
+    {
+        this->explicit_inc();
+        return *this;
+    }
+
+    _my_type& operator--()
+    {
+        this->explicit_dec();
+        return *this;
+    }
+
+    _my_type operator++(int)
+    {
+        _my_type ret = *this;
+        ++(*this);
+        return ret;
+    }
+
+    _my_type operator--(int)
+    {
+        _my_type ret = *this;
+        --(*this);
+        return ret;
+    }
+
+    template<size_t... Is>
+    _deref_type _deref_impl(std::index_sequence<Is...>) const
+    {
+        return sparse_(this->idx_[Is]...);
+    }
+
+    _deref_type operator*() const
+    {
+        return this->_deref_impl(std::make_index_sequence<_rank>{});
+    }
+
+    _deref_type operator[](ptrdiff_t diff) const
+    {
+        return *((*this) + diff);
+    }
+
+    ptrdiff_t operator-(const _my_type& other) const
+    {
+        return this->difference(other);
+    }
+
+    bool operator==(const _my_type& other) const
+    {
+        return this->cmp_equal(other);
+    }
+
+    bool operator<(const _my_type& other) const
+    {
+        return this->cmp_less(other);
+    }
+
+    bool operator>(const _my_type& other) const
+    {
+        return this->cmp_greater(other);
+    }
+
+    bool operator!=(const _my_type& other) const
+    {
+        return !((*this) == other);
+    }
+
+    bool operator<=(const _my_type& other) const
+    {
+        return !((*this) > other);
+    }
+
+    bool operator>=(const _my_type& other) const
+    {
+        return !((*this) < other);
+    }
+
+    const _idx_t& _get_idx_cref() const
+    {
+        return this->idx_;
+    }
+
+private:
+    template<typename Diff>
+    void inc(Diff diff)
+    {
+        if constexpr (std::is_unsigned_v<Diff>)
+            explicit_inc(diff);
+        else if (diff >= 0)
+            explicit_inc(diff);
+        else
+            explicit_dec(-diff);
+    }
+
+    template<typename Diff>
+    void dec(Diff diff)
+    {
+        if constexpr (std::is_unsigned_v<Diff>)
+            explicit_dec(diff);
+        else if (diff >= 0)
+            explicit_dec(diff);
+        else
+            explicit_inc(-diff);
+    }
+
+    // increment by 1 on Level
+    template<size_t Level = _rank - 1>
+    void explicit_inc()
+    {
+        const size_t dim = sparse_.dimension(Level);
+        idx_[Level]++;
+        if constexpr (Level > 0)
+        {
+            if (idx_[Level] < dim) // if did not overflow
+            {
+            }
+            else // if did overflow
+            {
+                idx_[Level] = 0;
+                explicit_inc<Level - 1>(); // carry
+            }
+        }
+    }
+
+    // increment by diff (diff >= 0) on Level
+    template<size_t Level = _rank - 1>
+    void explicit_inc(size_t diff)
+    {
+        const size_t dim = sparse_.dimension(Level);
+        idx_[Level] += diff;
+        if constexpr (Level > 0)
+        {
+            if (idx_[Level] < dim) // if did not overflow
+            { // do nothing
+            }
+            else if (idx_[Level] < 2 * dim) // if did overflow only once
+            {
+                idx_[Level] -= dim;
+                explicit_inc<Level - 1>(); // carry
+            }
+            else // if did overflow more than once
+            {
+                size_t val  = idx_[Level];
+                size_t quot = val / dim;
+                size_t rem  = val % dim;
+                idx_[Level] = rem;
+                explicit_inc<Level - 1>(quot); // carry
+            }
+        }
+    }
+
+    // decrement by 1 on Level
+    template<size_t Level = _rank - 1>
+    void explicit_dec()
+    {
+        const size_t dim = sparse_.dimension(Level);
+        if constexpr (Level > 0)
+        {
+            if (idx_[Level] > 0) // if will not underflow
+            {
+                idx_[Level]--;
+            }
+            else
+            {
+                idx_[Level] = dim - 1;
+                explicit_dec<Level - 1>(); // borrow
+            }
+        }
+        else
+        {
+            idx_[Level]--;
+        }
+    }
+
+    // decrement by diff (diff >= 0) on Level
+    template<size_t Level = _rank - 1>
+    void explicit_dec(size_t diff)
+    {
+        const size_t dim = sparse_.dimension(Level);
+        ptrdiff_t post_sub = idx_[Level] - diff;
+        if constexpr (Level > 0)
+        {
+            if (post_sub >= 0) // if will not underflow
+            {
+                idx_[Level] -= diff;
+            }
+            else if (size_t(-post_sub) <= dim) // if will underflow only once
+            {
+                idx_[Level] -= (diff - dim);
+                explicit_dec<Level - 1>(); // carry
+            }
+            else // if underflow more than once
+            {
+                size_t val  = size_t(-post_sub) - 1;
+                size_t quot = val / dim;
+                size_t rem  = val % dim;
+                idx_[Level] = dim - (rem + 1);
+                explicit_dec<Level - 1>(quot);
+            }
+        }
+        else
+        {
+            idx_[Level] = size_t(post_sub);
+        }
+    }
+
+    // calculate the diff, where indices1 = indices2 + diff
+    template<size_t Level = _rank - 1>
+    ptrdiff_t difference(const _my_type& other) const
+    {
+        ptrdiff_t    diff = this->idx_[Level] - other.idx_[Level];
+        const size_t dim  = sparse_.dimension(Level);
+        if constexpr (Level == 0)
+            return diff;
+        else
+            return dim * difference<Level - 1>(other) + diff;
+    }
+
+    template<size_t Level = 0>
+    bool cmp_equal(const _my_type& other) const
+    {
+        bool equal = (this->idx_[Level] == other.idx_[Level]);
+        if constexpr (Level + 1 < _rank)
+            return equal && cmp_equal<Level + 1>(other);
+        else
+            return equal;
+    }
+
+    template<size_t Level = 0>
+    bool cmp_less(const _my_type& other) const
+    {
+        if constexpr (Level + 1 < _rank)
+        {
+            ptrdiff_t diff = this->idx_[Level] - other.idx_[Level];
+            if (diff < 0)
+                return true;
+            else if (diff > 0)
+                return false;
+            else
+                return cmp_less<Level + 1>(other);
+        }
+        else
+        {
+            return this->idx_[Level] < other.idx_[Level];
+        }
+    }
+
+    template<size_t Level = 0>
+    bool cmp_greater(const _my_type& other) const
+    {
+        if constexpr (Level + 1 < _rank)
+        {
+            ptrdiff_t diff = this->idx_[Level] - other.idx_[Level];
+            if (diff > 0)
+                return true;
+            else if (diff < 0)
+                return false;
+            else
+                return cmp_greater<Level + 1>(other);
+        }
+        else
+        {
+            return this->idx_[Level] > other.idx_[Level];
+        }
+    }
+
+private:
+    _sparse_t sparse_;
+    _idx_t    idx_;
+};
+
+
+enum class sparse_passing_by
+{
+    value,     //  Automatic   sparse_array<T,R>
+    reference, // "Shared"     sparse_array<T,R>&
+    constant,  // "Constant"   const sparse_array<T,R>(&)
+    unknown
+};
+
+template<typename Sparse>
+struct sparse_passing_category :
+    std::integral_constant<sparse_passing_by, sparse_passing_by::unknown> {};
+template<typename T, size_t Rank>
+struct sparse_passing_category<sparse_array<T, Rank>> :
+    std::integral_constant<sparse_passing_by, sparse_passing_by::value> {};
+template<typename T, size_t Rank>
+struct sparse_passing_category<sparse_array<T, Rank>&> :
+    std::integral_constant<sparse_passing_by, sparse_passing_by::reference> {};
+template<typename T, size_t Rank>
+struct sparse_passing_category<const sparse_array<T, Rank>> :
+    std::integral_constant<sparse_passing_by, sparse_passing_by::constant> {};
+template<typename T, size_t Rank>
+struct sparse_passing_category<const sparse_array<T, Rank>&> :
+    std::integral_constant<sparse_passing_by, sparse_passing_by::constant> {};
+template<typename Sparse>
+constexpr sparse_passing_by sparse_passing_category_v = sparse_passing_category<Sparse>::value;
+
+
+
 template<typename Arg>
 auto transform_arg(MArgument arg)
 {
     using scalar_arg_t = std::remove_const_t<Arg>;
     using tensor_arg_t = std::remove_reference_t<std::remove_const_t<Arg>>;
+    using sprase_arg_t = std::remove_reference_t<std::remove_const_t<Arg>>;
     if constexpr (std::is_same_v<bool, scalar_arg_t>)
     {
         return static_cast<scalar_arg_t>(MArgument_getBoolean(arg));
@@ -881,6 +2266,18 @@ auto transform_arg(MArgument arg)
     else if constexpr (tensor_passing_category_v<Arg> == tensor_passing_by::reference)
     {
         return tensor_arg_t(MArgument_getMTensor(arg), memory_type::shared);
+    }
+    else if constexpr (sparse_passing_category_v<Arg> == sparse_passing_by::value)
+    {
+        return sprase_arg_t(MArgument_getMSparseArray(arg), memory_type::proxy);
+    }
+    else if constexpr (sparse_passing_category_v<Arg> == sparse_passing_by::constant)
+    {
+        return sprase_arg_t(MArgument_getMSparseArray(arg), memory_type::proxy);
+    }
+    else if constexpr (sparse_passing_category_v<Arg> == sparse_passing_by::reference)
+    {
+        return sprase_arg_t(MArgument_getMSparseArray(arg), memory_type::shared);
     }
     else
     {
@@ -928,6 +2325,11 @@ void submit_result(Ret&& result, MArgument mresult)
         WLL_DEBUG_EXECUTE(global_log << "rank == " << global_lib_data->MTensor_getRank(ret) << '\n'
                           << "size == " << global_lib_data->MTensor_getFlattenedLength(ret) << '\n');
         MArgument_setMTensor(mresult, ret);
+    }
+    else if constexpr (sparse_passing_category_v<Ret> == sparse_passing_by::value)
+    {
+        MSparseArray ret = std::move(result).get_msparse();
+        MArgument_setMSparseArray(mresult, ret);
     }
     else
     {
