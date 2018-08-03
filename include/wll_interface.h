@@ -197,69 +197,86 @@ static std::array<size_t, Rank> _convert_to_dims_array(std::initializer_list<T> 
 template<typename X, typename Y>
 auto _add_if_negative(X val_x, Y val_y)
 {
-    if constexpr (!std::is_signed_v<X>)
-        return Y(val_x);
-    else if (val_x < X(0))
-        return Y(val_x) + val_y;
-    else
-        return Y(val_x);
+    if constexpr (std::is_signed_v<X>)
+        if (val_x < X(0))
+            return Y(val_x) + val_y;
+    return Y(val_x);
 }
 
-template<typename Target, typename Source>
-inline Target _mtype_cast(Source value)
-{
-    //if constexpr (is_std_complex_v<Target>)
-    //{
-    //    using T = complex_value_t<Target>;
-    //    return Target(static_cast<T>(value),
-    //                  static_cast<T>(0));
-    //}
-    //if constexpr (std::is_same_v<mcomplex, Target>)
-    //{
-    //    mcomplex result;
-    //    mcreal(result) = static_cast<mreal>(value.real());
-    //    mcimag(result) = static_cast<mreal>(0);
-    //    return result;
-    //}
-    return static_cast<Target>(value);
-}
 
 template<typename Target>
-inline Target _mtype_cast(mcomplex value)
+struct _mtype_cast_impl
 {
-    if constexpr (is_std_complex_v<Target>)
+    template<typename Value>
+    constexpr Target operator()(const Value& value) noexcept
     {
-        return Target(static_cast<typename Target::value_type>(mcreal(value)),
-                      static_cast<typename Target::value_type>(mcimag(value)));
+        return static_cast<Target>(value);
     }
-    if constexpr (std::is_same_v<mcomplex, Target>)
+
+    constexpr Target operator()(const mcomplex& value) noexcept
+    {
+        static_assert(_always_false_v<Target>, "cannot convert from mcomplex");
+    }
+
+    template<typename T>
+    constexpr Target operator()(const std::complex<T>& value) noexcept
+    {
+        static_assert(_always_false_v<Target>, "cannot convert from std::complex<T>");
+    }
+};
+template<typename T>
+struct _mtype_cast_impl<std::complex<T>>
+{
+    template<typename Value>
+    constexpr std::complex<T> operator()(const Value& value) noexcept
+    {
+        return std::complex<T>(static_cast<T>(value));
+    }
+
+    constexpr std::complex<T> operator()(const mcomplex& value) noexcept
+    {
+        return std::complex<T>(static_cast<T>(mcreal(value)),
+                               static_cast<T>(mcimag(value)));
+    }
+
+    template<typename U>
+    constexpr std::complex<T> operator()(const std::complex<U>& value) noexcept
+    {
+        return std::complex<T>(static_cast<T>(value.real()),
+                               static_cast<T>(value.imag()));
+    }
+};
+template<>
+struct _mtype_cast_impl<mcomplex>
+{
+    template<typename Value>
+    constexpr mcomplex operator()(const Value& value) noexcept
+    {
+        mcomplex ret;
+        mcreal(ret) = static_cast<mreal>(value);
+        mcimag(ret) = mreal{};
+        return ret;
+    }
+
+    constexpr mcomplex operator()(const mcomplex& value) noexcept
     {
         return value;
     }
-    WLL_ASSERT(false); // complex type can only be converted to complex type
-    return Target{};
-}
 
-template<typename Target, typename T>
-inline Target _mtype_cast(std::complex<T> value)
+    template<typename T>
+    constexpr mcomplex operator()(const std::complex<T>& value) noexcept
+    {
+        mcomplex ret;
+        mcreal(ret) = static_cast<mreal>(value.real());
+        mcimag(ret) = static_cast<mreal>(value.imag());
+        return ret;
+    }
+};
+
+template<typename Target, typename Value>
+constexpr Target _mtype_cast(const Value& value)
 {
-    if constexpr (is_std_complex_v<Target>)
-    {
-        return Target(static_cast<typename Target::value_type>(value.real()),
-                      static_cast<typename Target::value_type>(value.imag()));
-    }
-    else if constexpr (std::is_same_v<mcomplex, Target>)
-    {
-        mcomplex result;
-        mcreal(result) = static_cast<mreal>(value.real());
-        mcimag(result) = static_cast<mreal>(value.imag());
-        return result;
-    }
-    else
-    {
-        WLL_ASSERT(false); // complex type can only be converted to complex type
-        return Target{};
-    }
+    return _mtype_cast_impl<Target>()(value);
 }
 
 template<typename SrcType, typename DestType>
@@ -320,6 +337,9 @@ public:
     using _const_ptr_t = const value_type*;
     using _dims_t      = std::array<size_t, _rank>;
     static_assert(_rank > 0, "");
+
+    template<typename U, size_t URank>
+    friend class tensor;
 
     tensor() noexcept = default;
 
@@ -618,7 +638,7 @@ public:
         static_assert(sizeof...(idx) == _rank, "");
         return (*this)[_get_flat_idx_unsafe(std::make_tuple(idx...))];
     }
-    
+
     template<typename IdxTuple>
     value_type& _tuple_at(const IdxTuple& idx_tuple)
     {
@@ -965,6 +985,9 @@ public:
     friend class reference;
     friend class const_reference;
 
+    template<typename U, size_t URank>
+    friend class sparse_array;
+
     sparse_array() = default;
 
     sparse_array(MSparseArray msparse, memory_type access) :
@@ -1049,7 +1072,7 @@ public:
         }
     }
 
-    sparse_array(const tensor<value_type, _rank>& other, value_type value = value_type{}, 
+    sparse_array(const tensor<value_type, _rank>& other, value_type value = value_type{},
                  double reserve_density = -1.0) :
         dims_{other.dimensions()}, size_{other.size()},
         implicit_value_{value}, access_{memory_type::owned}
@@ -1391,13 +1414,13 @@ public:
         {
             if (this->_nz_size() != other._nz_size())
                 return false;
-            if (this->row_idx_ != other.row_idx_ && 
+            if (this->row_idx_ != other.row_idx_ &&
                 !std::equal(this->row_idx_, this->row_idx_ + _row_idx_size(), other.row_idx_))
                 return false;
-            if (this->values_ != other.values_ && 
+            if (this->values_ != other.values_ &&
                 !std::equal(this->values_, this->values_ + _nz_size(), other.values_))
                 return false;
-            if (this->columns_ != other.columns_ && 
+            if (this->columns_ != other.columns_ &&
                 !std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_))
                 return false;
         }
@@ -1602,7 +1625,7 @@ public:
     }
 
     template<size_t... Is>
-    _idx_t _make_zero_based_idx_impl(size_t row_idx, size_t i_nz, 
+    _idx_t _make_zero_based_idx_impl(size_t row_idx, size_t i_nz,
                                      std::index_sequence<Is...>) const
     {
         return {row_idx, (std::get<Is>(columns_[i_nz]) - 1)...};
@@ -2283,6 +2306,7 @@ auto transform_arg(MArgument arg)
     {
         static_assert(_always_false_v<Arg>, "not a valid argument type");
     }
+    return Arg{};
 }
 
 template<typename Ret>
