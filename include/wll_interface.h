@@ -25,13 +25,6 @@ namespace wll
 {
 
 
-#ifdef NDEBUG
-#define WLL_ASSERT(x) ((void)0)
-#else
-#define WLL_ASSERT(x) assert((x))
-#endif
-
-
 #if defined(__GNUC__)
 static_assert(__GNUC__ >= 7, "");
 #define WLL_CURRENT_FUNCTION __PRETTY_FUNCTION__
@@ -130,8 +123,10 @@ std::string        global_string_result;
 
 #ifdef NDEBUG
 #define WLL_DEBUG_EXECUTE(any) ((void)0)
+#define WLL_ASSERT(x) ((void)0)
 #else
 #define WLL_DEBUG_EXECUTE(any) (any)
+#define WLL_ASSERT(x) assert((x))
 #endif
 
 
@@ -293,7 +288,6 @@ bool operator!=(const mcomplex& a, const mcomplex& b)
 template<typename SrcType, typename DestType>
 inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_ptr)
 {
-    WLL_DEBUG_EXECUTE(global_log << "_data_copy_n()\n");
     if (count > 0)
     {
         WLL_ASSERT(src_ptr != nullptr && dest_ptr != nullptr);
@@ -301,7 +295,6 @@ inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_pt
         for (size_t i = 0; i < count; ++i)
             dest_ptr[i] = _mtype_cast<DestType>(src_ptr[i]);
     }
-    WLL_DEBUG_EXECUTE(global_log << "_data_copy_n()\n");
 }
 
 
@@ -396,7 +389,6 @@ public:
                        access_ == memory_type::proxy);
             mtensor_ = nullptr;
             access_  = memory_type::owned; // *this will own data after copy
-            WLL_DEBUG_EXECUTE(global_log << "tensor(MTensor) with data copy\n");
             ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
             if (ptr_ == nullptr)
                 throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
@@ -411,8 +403,6 @@ public:
         {
             WLL_ASSERT(access_ == memory_type::proxy ||
                        access_ == memory_type::shared);
-            WLL_DEBUG_EXECUTE(global_log << "tensor(MTensor) with no data copy, "
-                              << (access_ == memory_type::proxy ? "access == proxy\n" : "access == shared\n"));
             ptr_ = reinterpret_cast<_ptr_t>(src_ptr);
         }
     }
@@ -424,7 +414,6 @@ public:
                    access_ == memory_type::manual);
         if (access_ == memory_type::owned)
         {
-            WLL_DEBUG_EXECUTE(global_log << "tensor(_dims_t) with data copy\n");
             ptr_ = reinterpret_cast<_ptr_t>(calloc(size_, sizeof(value_type)));
             if (ptr_ == nullptr)
                 throw library_memory_error(WLL_CURRENT_FUNCTION"\ncalloc failed, access_ == owned.");
@@ -435,7 +424,6 @@ public:
             constexpr int mtype = derive_tensor_data_type<value_type>::strict_type_v;
             if (mtype == MType_Void)
                 throw library_type_error(WLL_CURRENT_FUNCTION"\nvalue_type cannot be strictly matched to any MType.");
-            WLL_DEBUG_EXECUTE(global_log << "tensor(_dims_t, ::manual)\n");
             int err = global_lib_data->MTensor_new(
                 mtype, _rank, reinterpret_cast<mint*>(dims_.data()), &mtensor_);
             if (err != LIBRARY_NO_ERROR)
@@ -456,7 +444,6 @@ public:
     tensor(const tensor& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor(const tensor&) with data copy\n");
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
             throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
@@ -469,14 +456,12 @@ public:
         std::swap(ptr_, other.ptr_);
         std::swap(access_, other.access_);
         std::swap(mtensor_, other.mtensor_);
-        WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with member swap\n");
     }
 
     template<typename U>
     tensor(const tensor<U, _rank>& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with data copy, difference types\n");
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
             throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
@@ -487,7 +472,6 @@ public:
     tensor(tensor<U, _rank>&& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor(tensor&&) with data copy, difference types\n");
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
             throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
@@ -502,12 +486,7 @@ public:
         {
             if (!(this->_has_same_dims(other.dims_.data())))
                 throw library_dimension_error(WLL_CURRENT_FUNCTION"\ntensors have different dimensions.");
-            WLL_DEBUG_EXECUTE(global_log << "operator=(const tensor&) with data copy\n");
             _data_copy_n(other.ptr_, size_, ptr_);
-        }
-        else
-        {
-            WLL_DEBUG_EXECUTE(global_log << "operator=(const tensor&) do nothing\n");
         }
         return *this;
     }
@@ -525,18 +504,12 @@ public:
                 this->access_ == memory_type::proxy  ||
                 this->access_ == memory_type::shared)
             {
-                WLL_DEBUG_EXECUTE(global_log << "operator=(tensor&&) with data copy\n");
                 _data_copy_n(other.ptr_, size_, ptr_);
             }
             else
             {
-                WLL_DEBUG_EXECUTE(global_log << "operator=(tensor&&) with pointer swap\n");
                 this->_swap_pointers(std::move(other));
             }
-        }
-        else
-        {
-            WLL_DEBUG_EXECUTE(global_log << "operator=(tensor&&) do nothing\n");
         }
         return *this;
     }
@@ -548,7 +521,6 @@ public:
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
         // tensors with difference value_type should not have the same ptr_
         WLL_ASSERT((void*)(this->ptr_) != (void*)(other.ptr_));
-        WLL_DEBUG_EXECUTE(global_log << "operator=(tensor&&) with data copy, different types\n");
         _data_copy_n(other.ptr_, size_, ptr_);
         return *this;
     }
@@ -560,7 +532,6 @@ public:
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
         // tensors with difference value_type should not have the same ptr_
         WLL_ASSERT((void*)(this->ptr_) != (void*)(other.ptr_));
-        WLL_DEBUG_EXECUTE(global_log << "operator=(tensor&&) with data copy, different types\n");
         _data_copy_n(other.ptr_, size_, ptr_);
         return *this;
     }
@@ -569,18 +540,14 @@ public:
     {
         WLL_ASSERT(this->access_ != memory_type::empty); // cannot clone an empty tensor
         WLL_ASSERT(access == memory_type::owned || access == memory_type::manual);
-        WLL_DEBUG_EXECUTE(global_log << "tensor::clone()\n");
         tensor ret(this->dims_, access);
         _data_copy_n(ptr_, size_, ret.ptr_);
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::clone()\n");
         return ret;
     }
 
     ~tensor()
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor::~tensor()\n");
         this->_destroy();
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::~tensor()\n");
     }
 
     constexpr size_t rank() const noexcept
@@ -805,7 +772,6 @@ private:
 
     void _destroy()
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor::_destroy(), access_ == " << int(this->access_) << '\n');
         if (access_ == memory_type::empty)
         {
             WLL_ASSERT(mtensor_ == nullptr);
@@ -814,7 +780,6 @@ private:
         else if (access_ == memory_type::owned)
         {
             WLL_ASSERT(mtensor_ == nullptr);
-            WLL_DEBUG_EXECUTE(global_log << "free @ " << std::hex << reinterpret_cast<uint64_t>(ptr_) << std::dec);
             free(ptr_);
         }
         else if (access_ == memory_type::proxy)
@@ -832,14 +797,12 @@ private:
         ptr_     = nullptr;
         mtensor_ = nullptr;
         access_  = memory_type::empty;
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::_destroy()\n");
     }
 
     void _release_ownership()
     {
         // destruct the object without free resource, manual tensor only
         WLL_ASSERT(access_ == memory_type::manual);
-        WLL_DEBUG_EXECUTE(global_log << "tensor::release_ownership()\n");
         ptr_     = nullptr;
         mtensor_ = nullptr;
         access_  = memory_type::empty;
@@ -848,7 +811,6 @@ private:
     MTensor _get_mtensor_lvalue() const
     {
         WLL_ASSERT(access_ != memory_type::empty);
-        WLL_DEBUG_EXECUTE(global_log << "tensor::_get_mtensor_lvalue()\n");
 
         using mtype = typename derive_tensor_data_type<value_type>::convert_type;
         constexpr int mtype_v = derive_tensor_data_type<value_type>::convert_type_v;
@@ -865,20 +827,17 @@ private:
             _data_copy_n(ptr_, size_, global_lib_data->MTensor_getRealData(ret_tensor));
         else  // mtype_v == MType_Complex
             _data_copy_n(ptr_, size_, global_lib_data->MTensor_getComplexData(ret_tensor));
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::_get_mtensor_lvalue()\n");
         return ret_tensor;
     }
 
     MTensor _get_mtensor_rvalue()
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor::_get_mtensor_rvalue()\n");
         WLL_ASSERT(access_ != memory_type::empty);
         if (access_ == memory_type::manual)
         {
             // return the containing mtensor and destroy *this
             MTensor ret = this->mtensor_;
             this->_release_ownership();
-            WLL_DEBUG_EXECUTE(global_log << "leaving tensor::_get_mtensor_rvalue(), access = manual\n");
             return ret;
         }
         else // access == owned / proxy / shared
@@ -891,7 +850,6 @@ private:
     template<typename Other>
     void _swap_pointers(Other&& other)
     {
-        WLL_DEBUG_EXECUTE(global_log << "tensor::_swap_pointers()\n");
         WLL_ASSERT(this->access_ == memory_type::owned ||
                    this->access_ == memory_type::manual); // only tensors own data can swap
         WLL_ASSERT(other.access_ == memory_type::owned ||
@@ -901,7 +859,6 @@ private:
         std::swap(this->ptr_, other.ptr_);
         std::swap(this->mtensor_, other.mtensor_);
         std::swap(this->access_, other.access_);
-        WLL_DEBUG_EXECUTE(global_log << "leaving tensor::_swap_pointers()\n");
     }
 
 
@@ -2323,7 +2280,6 @@ auto transform_arg(MArgument arg)
 template<typename Ret>
 void submit_result(Ret&& result, MArgument mresult)
 {
-    WLL_DEBUG_EXECUTE(global_log << "submit_result()\n");
     if constexpr (std::is_same_v<bool, Ret>)
     {
         MArgument_setBoolean(mresult, result);
@@ -2357,8 +2313,6 @@ void submit_result(Ret&& result, MArgument mresult)
     else if constexpr (tensor_passing_category_v<Ret> == tensor_passing_by::value)
     {
         MTensor ret = std::move(result).get_mtensor();
-        WLL_DEBUG_EXECUTE(global_log << "rank == " << global_lib_data->MTensor_getRank(ret) << '\n'
-                          << "size == " << global_lib_data->MTensor_getFlattenedLength(ret) << '\n');
         MArgument_setMTensor(mresult, ret);
     }
     else if constexpr (sparse_passing_category_v<Ret> == sparse_passing_by::value)
@@ -2370,7 +2324,6 @@ void submit_result(Ret&& result, MArgument mresult)
     {
         static_assert(_always_false_v<Ret>, "not a valid return type");
     }
-    WLL_DEBUG_EXECUTE(global_log << "leaving submit_result()\n");
 }
 
 template<typename... ArgTypes, size_t... Is>
@@ -2395,7 +2348,6 @@ auto tuple_invoke_impl(Ret fn(Args...), ArgsTuple& args, std::index_sequence<Is.
 template<typename Fn, typename ArgsTuple>
 auto tuple_invoke(Fn&& fn, ArgsTuple& args)
 {
-    WLL_DEBUG_EXECUTE(global_log << "tuple_invoke()\n");
     return tuple_invoke_impl(std::forward<Fn>(fn), args,
                              std::make_index_sequence<std::tuple_size_v<ArgsTuple>>{});
 }
@@ -2444,6 +2396,13 @@ int library_eval(Ret fn(Args...), mint argc, MArgument* args, MArgument& mresult
     }
     return LIBRARY_NO_ERROR;
 }
+
+
+inline bool has_abort() noexcept
+{
+    return bool(global_lib_data->AbortQ());
+}
+
 
 }
 
