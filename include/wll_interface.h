@@ -2361,7 +2361,7 @@ inline void handle_exception(std::exception_ptr eptr) noexcept
     }
     catch (std::exception& std_error)
     {
-        global_exception.error_type_ = LIBRARY_FUNCTION_ERROR;
+        global_exception.error_type_ = -1; //LIBRARY_USER_ERROR
         global_exception.message_ = std::string("Standard Library Exception\n") + std_error.what();
     }
     catch (library_error& lib_error)
@@ -2371,7 +2371,7 @@ inline void handle_exception(std::exception_ptr eptr) noexcept
     }
     catch (...)
     {
-        global_exception.error_type_ = LIBRARY_FUNCTION_ERROR;
+        global_exception.error_type_ = -1; //LIBRARY_USER_ERROR
         global_exception.message_ = std::string("Unknown Exception Type");
     }
 }
@@ -2379,8 +2379,11 @@ inline void handle_exception(std::exception_ptr eptr) noexcept
 template<typename Ret, typename... Args>
 int library_eval(Ret fn(Args...), mint argc, MArgument* args, MArgument& mresult)
 {
+#ifndef WLL_DISABLE_EXCEPTION_HANDLING
     try
     {
+#endif
+
         WLL_ASSERT(sizeof...(Args) == size_t(argc));
         static_assert(!std::is_reference_v<Ret>, "cannot return a reference type");
         auto args_tuple = get_args<Args...>(args);
@@ -2388,12 +2391,16 @@ int library_eval(Ret fn(Args...), mint argc, MArgument* args, MArgument& mresult
             tuple_invoke(fn, args_tuple);
         else
             submit_result(tuple_invoke(fn, args_tuple), mresult);
+
+#ifndef WLL_DISABLE_EXCEPTION_HANDLING
     }
     catch (...)
     {
         handle_exception(std::current_exception());
         return global_exception.error_type_;
     }
+#endif
+
     return LIBRARY_NO_ERROR;
 }
 
