@@ -213,15 +213,17 @@ struct _mtype_cast_impl
         return static_cast<Target>(value);
     }
 
-    constexpr Target operator()(const mcomplex& value) noexcept
+    constexpr Target operator()(const mcomplex& value)
     {
-        static_assert(_always_false_v<Target>, "cannot convert from mcomplex");
+        throw library_type_error(WLL_CURRENT_FUNCTION"\ncannot convert from mcomplex");
+        return Target{};
     }
 
     template<typename T>
-    constexpr Target operator()(const std::complex<T>& value) noexcept
+    constexpr Target operator()(const std::complex<T>& value)
     {
-        static_assert(_always_false_v<Target>, "cannot convert from std::complex<T>");
+        throw library_type_error(WLL_CURRENT_FUNCTION"\ncannot convert from std::complex<T>");
+        return Target{};
     }
 };
 template<typename T>
@@ -2315,7 +2317,7 @@ auto transform_arg(MArgument arg)
     {
         static_assert(_always_false_v<Arg>, "not a valid argument type");
     }
-    return Arg{};
+    return tensor_arg_t{};
 }
 
 template<typename Ret>
