@@ -279,6 +279,15 @@ constexpr Target _mtype_cast(const Value& value)
     return _mtype_cast_impl<Target>()(value);
 }
 
+bool operator==(const mcomplex& a, const mcomplex& b)
+{
+    return (mcreal(a) == mcreal(b)) && (mcimag(a) == mcimag(b));
+}
+bool operator!=(const mcomplex& a, const mcomplex& b)
+{
+    return !(a == b);
+}
+
 template<typename SrcType, typename DestType>
 inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_ptr)
 {
@@ -1588,7 +1597,7 @@ public:
         return ret;
     }
 
-public:
+private:
 
     size_t _nz_size() const noexcept
     {
@@ -1777,7 +1786,7 @@ public:
         this->_update_pointers();
     }
 
-public:
+private:
     _dims_t    dims_;
     size_t     size_;              // total size of the array
     size_t     nz_size_;           // number of non-zero elements
