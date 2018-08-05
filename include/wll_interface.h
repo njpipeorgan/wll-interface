@@ -9,6 +9,7 @@
 #include <array>
 #include <complex>
 #include <exception>
+#include <initializer_list>
 #include <iterator>
 #include <numeric>
 #include <sstream>
@@ -172,7 +173,7 @@ constexpr bool _always_false_v = false;
 
 
 template<size_t Size>
-inline size_t _flattened_size(const std::array<size_t, Size>& dims) noexcept
+size_t _flattened_size(const std::array<size_t, Size>& dims) noexcept
 {
     size_t size = 1;
     for (size_t d : dims) size *= d;
@@ -180,10 +181,10 @@ inline size_t _flattened_size(const std::array<size_t, Size>& dims) noexcept
 }
 
 template<size_t Rank, typename T>
-static std::array<size_t, Rank> _convert_to_dims_array(std::initializer_list<T> dims)
+std::array<size_t, Rank> _convert_to_dims_array(std::initializer_list<T> dims)
 {
     static_assert(std::is_integral_v<T>, "dimensions should be of integral types");
-    WLL_ASSERT(dims.size() == Rank);
+    WLL_ASSERT(dims.size() == Rank);   // dims should have size equal to the rank
     std::array<size_t, Rank> dims_array;
     std::copy_n(dims.begin(), Rank, dims_array.begin());
     return dims_array;
@@ -331,6 +332,21 @@ enum memory_type
     shared  // kernel/wll::tensor  MTensor_disown
 };
 
+
+template<typename T, size_t Rank>
+struct tensor_init_data
+{
+    using type = std::initializer_list<typename tensor_init_data<T, Rank - 1>::type>;
+};
+template<typename T>
+struct tensor_init_data<T, 0>
+{
+    using type = T;
+};
+template<typename T, size_t Rank>
+using tensor_init_data_t = typename tensor_init_data<T, Rank>::type;
+
+
 template<typename T, size_t Rank>
 class tensor
 {
@@ -340,6 +356,8 @@ public:
     using _ptr_t       = value_type*;
     using _const_ptr_t = const value_type*;
     using _dims_t      = std::array<size_t, _rank>;
+    using _init_dims_t = std::initializer_list<size_t>;
+    using _init_data_t = tensor_init_data_t<value_type, _rank>;
     static_assert(_rank > 0, "");
 
     template<typename U, size_t URank>
@@ -437,9 +455,20 @@ public:
         }
     }
 
-    template<typename U>
-    tensor(std::initializer_list<U> dims, memory_type access = memory_type::owned) :
+    tensor(_init_dims_t dims, memory_type access = memory_type::owned) :
         tensor(_convert_to_dims_array<_rank>(dims), access) {}
+
+    tensor(_dims_t dims, const _init_data_t& data, memory_type access = memory_type::owned) :
+        tensor(dims, access)
+    {
+        this->_fill_init_data(data);
+    }
+
+    tensor(_init_dims_t dims, const _init_data_t& data, memory_type access = memory_type::owned) :
+        tensor(_get_init_dims(dims, data), data, access)
+    {
+        this->_fill_init_data(data);
+    }
 
     tensor(const tensor& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
@@ -759,7 +788,7 @@ public:
         return this->operator()(std::get<Is>(idx_tuple)...);
     }
 
-private:
+public:
 
     template<size_t I = 0, typename Dims>
     bool _has_same_dims(const Dims* other_dims)
@@ -859,6 +888,83 @@ private:
         std::swap(this->ptr_, other.ptr_);
         std::swap(this->mtensor_, other.mtensor_);
         std::swap(this->access_, other.access_);
+    }
+
+    template<size_t Level, typename Data>
+    static auto _get_init_data_dims_impl(_dims_t& dims, const Data& data) noexcept
+        -> std::enable_if_t<Level + 1 != _rank>
+    {
+        const size_t size = data.size();
+        WLL_ASSERT(size > 0);
+        if (dims[Level] == size_t(0))
+            dims[Level] = size;
+        else
+            WLL_ASSERT(dims[Level] == size); // shape of the array should be regular
+
+        for (const auto& sub_data : data)
+            _get_init_data_dims_impl<Level + 1>(dims, sub_data);
+    }
+
+    template<size_t Level, typename Data>
+    static auto _get_init_data_dims_impl(_dims_t& dims, const Data& data) noexcept
+        -> std::enable_if_t<Level + 1 == _rank>
+    {
+        const size_t size = data.size();
+        WLL_ASSERT(size > 0);
+        if (dims[Level] == size_t(0))
+            dims[Level] = size;
+        else
+            WLL_ASSERT(dims[Level] == size); // shape of the array should be regular
+    }
+
+    static _dims_t _get_init_data_dims(const _init_data_t& data) noexcept
+    {
+        _dims_t dims ={};
+        _get_init_data_dims_impl<0>(dims, data);
+        return dims;
+    }
+
+    static _dims_t _get_init_dims(const _init_dims_t& dims, const _init_data_t& data) noexcept
+    {
+        return (dims.size() == 0) ? _get_init_data_dims(data) : _convert_to_dims_array<_rank>(dims);
+    }
+
+    template<size_t Level>
+    size_t _size_by_level() const noexcept
+    {
+        static_assert(Level <= _rank, "");
+        if constexpr (Level == _rank)
+            return size_t(1);
+        else
+            return dims_[Level] * _size_by_level<Level + 1>();
+    }
+
+    template<size_t Level, typename Data>
+    void _fill_init_data_impl(_ptr_t& ptr, const Data& data)
+    {
+        static_assert(Level + 1 <= _rank, "");
+        const size_t size = data.size();
+        const size_t pad_size = this->dims_[Level] - size;
+        WLL_ASSERT(size > 0 && pad_size >= 0);
+        if constexpr (Level + 1 == _rank)
+        {
+            for (const auto& value : data)
+                *(ptr++) = value;
+            ptr += pad_size;
+        }
+        else
+        {
+            for (const auto& sub_data : data)
+                this->_fill_init_data_impl<Level + 1>(ptr, sub_data);
+            ptr += _size_by_level<Level + 1>() * pad_size;
+        }
+    }
+
+    void _fill_init_data(const _init_data_t& data)
+    {
+        WLL_ASSERT(this->access_ != memory_type::empty);
+        _ptr_t ptr = ptr_;
+        this->_fill_init_data_impl<0>(ptr, data);
     }
 
 
