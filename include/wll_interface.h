@@ -1301,6 +1301,7 @@ public:
                 }
             }
         }
+        this->nz_size_ = values_vec_.size();
         this->_update_pointers();
     }
 
