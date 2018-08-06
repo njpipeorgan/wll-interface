@@ -315,7 +315,7 @@ struct _index_array
 };
 
 template<typename... Indices>
-_index_array<sizeof...(Indices)> index(const Indices&... indices)
+_index_array<sizeof...(Indices)> pos(const Indices&... indices)
 {
     return std::array<size_t, sizeof...(Indices)>({size_t(indices)...});
 }
