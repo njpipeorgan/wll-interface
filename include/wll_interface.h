@@ -298,6 +298,28 @@ inline void _data_copy_n(const SrcType* src_ptr, size_t count, DestType* dest_pt
     }
 }
 
+template<size_t Rank>
+struct _index_array
+{
+    using _idx_t = std::array<size_t, Rank>;
+
+    _index_array(const _idx_t& idx) noexcept : idx_{idx} {}
+
+    template<typename Value>
+    std::pair<_idx_t, Value> operator=(const Value& value) const noexcept
+    {
+        return {idx_, value};
+    }
+
+    _idx_t idx_;
+};
+
+template<typename... Indices>
+_index_array<sizeof...(Indices)> index(const Indices&... indices)
+{
+    return std::array<size_t, sizeof...(Indices)>({size_t(indices)...});
+}
+
 
 #define MType_Void -1
 
@@ -788,7 +810,7 @@ public:
         return this->operator()(std::get<Is>(idx_tuple)...);
     }
 
-public:
+private:
 
     template<size_t I = 0, typename Dims>
     bool _has_same_dims(const Dims* other_dims)
@@ -1050,6 +1072,9 @@ public:
     using _idx_t       = std::array<size_t, _rank>;
     static constexpr size_t _column_size = (Rank >= 2) ? (Rank - 1) : 1;
     using _column_t    = std::array<size_t, _column_size>;
+    using _init_dims_t = std::initializer_list<size_t>;
+    using _init_rule_t = std::pair<_idx_t, value_type>;
+    using _init_data_t = std::initializer_list<_init_rule_t>;
     static_assert(_rank > 0, "");
 
     using iterator        = _sparse_iterator<value_type, _rank, false>;
@@ -1225,9 +1250,62 @@ public:
         this->_update_pointers();
     }
 
-    template<typename U>
-    sparse_array(std::initializer_list<U> dims, value_type value = value_type{}) :
+    sparse_array(_init_dims_t dims, value_type value = value_type{}) :
         sparse_array(_convert_to_dims_array<_rank>(dims), value) {}
+
+    sparse_array(_dims_t dims, _init_data_t rules, value_type value = value_type{}) :
+        sparse_array(dims, value)
+    {
+        std::vector<_init_rule_t> rules_vec(rules);
+        WLL_ASSERT(_rules_vector_index_check(rules_vec)); // some indices are out of range
+
+        // stable sort by indices
+        std::stable_sort(rules_vec.begin(), rules_vec.end(),
+                         [](auto& r1, auto& r2) { return r1.first < r2.first; });
+        // remove duplicates, keeping the last one
+        auto iter = std::unique(rules_vec.rbegin(), rules_vec.rend(),
+                                [](auto& r1, auto& r2) { return r1.first == r2.first; });
+        rules_vec.erase(rules_vec.begin(), iter.base());
+
+        if constexpr (_rank == 1)
+        {
+            this->row_idx_vec_[1] = rules_vec.size();
+            for (const auto& rule : rules_vec)
+            {
+                if (rule.second != this->implicit_value_)
+                {
+                    this->columns_vec_.push_back({rule.first[0] + 1});
+                    this->values_vec_.push_back(rule.second);
+                }
+            }
+        }
+        else
+        {
+            auto first = rules_vec.cbegin();
+            auto last  = rules_vec.cend();
+            for (size_t i_row = 0; i_row < dims_[0]; ++i_row)
+            {
+                auto upper = std::upper_bound(
+                    first, last, i_row, [](size_t i, auto& r) { return i < r.first[0]; });
+                this->row_idx_vec_[i_row + 1] = upper - rules_vec.cbegin();
+                for (; first != upper; ++first)
+                {
+                    if (first->second != this->implicit_value_)
+                    {
+                        _column_t col_idx{};
+                        for (size_t i_col = 0; i_col < _rank - 1; ++i_col)
+                            col_idx[i_col] = first->first[i_col + 1] + 1;
+                        this->columns_vec_.push_back(col_idx);
+                        this->values_vec_.push_back(first->second);
+                    }
+                }
+            }
+        }
+        this->_update_pointers();
+    }
+
+    sparse_array(_init_dims_t dims, _init_data_t rules, value_type value = value_type{}) :
+        sparse_array(_get_init_dims(dims, rules), rules, value) {}
 
     template<bool UsePointers, bool SwapColRow, bool SwapValues, bool SameType, typename Other>
     void _ctor_impl(Other&& other)
@@ -1849,6 +1927,37 @@ private:
         values_vec_.resize(new_i_nz);
         columns_vec_.resize(new_i_nz);
         this->_update_pointers();
+    }
+
+    static _dims_t _get_init_data_dims(const _init_data_t& rules) noexcept
+    {
+        _dims_t dims{};
+        for (const auto& rule : rules)
+        {
+            const _idx_t& idx = rule.first;
+            for (size_t i = 0; i < _rank; ++i)
+                if (dims[i] < idx[i])
+                    dims[i] = idx[i];
+        }
+        for (auto& e : dims)
+            ++e;
+        return dims;
+    }
+
+    static _dims_t _get_init_dims(const _init_dims_t& dims, const _init_data_t& rules) noexcept
+    {
+        return (dims.size() == 0) ? _get_init_data_dims(rules) : _convert_to_dims_array<_rank>(dims);
+    }
+
+    bool _rules_vector_index_check(const std::vector<_init_rule_t>& rules_vec) const
+    {
+        for (const auto& rule : rules_vec)
+        {
+            for (size_t i = 0; i < _rank; ++i)
+                if (rule.first[i] >= dims_[i])
+                    return false;
+        }
+        return true;
     }
 
 private:
