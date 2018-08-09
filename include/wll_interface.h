@@ -447,7 +447,7 @@ public:
         }
     }
 
-    tensor(_dims_t dims, memory_type access = memory_type::owned) :
+    explicit tensor(_dims_t dims, memory_type access = memory_type::owned) :
         dims_{dims}, size_{_flattened_size(dims)}, access_{access}
     {
         WLL_ASSERT(access_ == memory_type::owned ||
@@ -477,7 +477,7 @@ public:
         }
     }
 
-    tensor(_init_dims_t dims, memory_type access = memory_type::owned) :
+    explicit tensor(_init_dims_t dims, memory_type access = memory_type::owned) :
         tensor(_convert_to_dims_array<_rank>(dims), access) {}
 
     tensor(_dims_t dims, const _init_data_t& data, memory_type access = memory_type::owned) :
@@ -1242,7 +1242,7 @@ public:
         this->_update_pointers();
     }
 
-    sparse_array(_dims_t dims, value_type value = value_type{}) :
+    explicit sparse_array(_dims_t dims, value_type value = value_type{}) :
         dims_{dims}, size_{_flattened_size(dims)}, nz_size_{size_t(0)},
         implicit_value_{value}, access_{memory_type::owned}
     {
@@ -1250,7 +1250,7 @@ public:
         this->_update_pointers();
     }
 
-    sparse_array(_init_dims_t dims, value_type value = value_type{}) :
+    explicit sparse_array(_init_dims_t dims, value_type value = value_type{}) :
         sparse_array(_convert_to_dims_array<_rank>(dims), value) {}
 
     sparse_array(_dims_t dims, _init_data_t rules, value_type value = value_type{}) :
@@ -2520,7 +2520,8 @@ void submit_result(Ret&& result, MArgument mresult)
         char* string_ptr = const_cast<char*>(global_string_result.c_str());
         MArgument_setUTF8String(mresult, string_ptr);
     }
-    else if constexpr (std::is_same_v<const char*, Ret>)
+    else if constexpr (std::is_same_v<const char*, Ret> || 
+                       std::is_same_v<char*, Ret>)
     {
         global_string_result = std::string(result);
         char* string_ptr = const_cast<char*>(global_string_result.c_str());
