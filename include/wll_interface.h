@@ -6,6 +6,7 @@
 #endif
 
 #include <cassert>
+#include <algorithm>
 #include <array>
 #include <complex>
 #include <exception>
@@ -28,16 +29,16 @@ namespace wll
 
 #if defined(__GNUC__)
 static_assert(__GNUC__ >= 7, "");
-#define WLL_CURRENT_FUNCTION __PRETTY_FUNCTION__
+#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
 #elif defined(__INTEL_COMPILER)
 static_assert(__INTEL_COMPILER >= 1900, "");
-#define WLL_CURRENT_FUNCTION __FUNCTION__
+#define WLL_CURRENT_FUNCTION std::string(__FUNCTION__)
 #elif defined(__clang__)
 static_assert(__clang_major__ >= 4, "");
-#define WLL_CURRENT_FUNCTION __PRETTY_FUNCTION__
+#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
 #elif defined(_MSC_VER)
 static_assert(_MSC_VER >= 1911, "");
-#define WLL_CURRENT_FUNCTION __FUNCSIG__
+#define WLL_CURRENT_FUNCTION std::string(__FUNCSIG__)
 #endif
 
 static_assert(sizeof(mint) == sizeof(size_t), "");
@@ -211,14 +212,14 @@ struct _mtype_cast_impl
 
     constexpr Target operator()(const mcomplex& value)
     {
-        throw library_type_error(WLL_CURRENT_FUNCTION"\ncannot convert from mcomplex");
+        throw library_type_error(WLL_CURRENT_FUNCTION + "\ncannot convert from mcomplex");
         return Target{};
     }
 
     template<typename T>
     constexpr Target operator()(const std::complex<T>& value)
     {
-        throw library_type_error(WLL_CURRENT_FUNCTION"\ncannot convert from std::complex<T>");
+        throw library_type_error(WLL_CURRENT_FUNCTION + "\ncannot convert from std::complex<T>");
         return Target{};
     }
 };
@@ -431,7 +432,7 @@ public:
             access_  = memory_type::owned; // *this will own data after copy
             ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
             if (ptr_ == nullptr)
-                throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
+                throw library_memory_error(WLL_CURRENT_FUNCTION + "\nmalloc failed when copying data.");
             if (mtype == MType_Integer)
                 _data_copy_n(reinterpret_cast<mint*>(src_ptr), size_, ptr_);
             else if (mtype == MType_Real)
@@ -456,18 +457,18 @@ public:
         {
             ptr_ = reinterpret_cast<_ptr_t>(calloc(size_, sizeof(value_type)));
             if (ptr_ == nullptr)
-                throw library_memory_error(WLL_CURRENT_FUNCTION"\ncalloc failed, access_ == owned.");
+                throw library_memory_error(WLL_CURRENT_FUNCTION + "\ncalloc failed, access_ == owned.");
         }
         else // access_ == memory_type::manual
         {
             //throw library_dimension_error(std::to_string(dims[0]));
             constexpr int mtype = derive_tensor_data_type<value_type>::strict_type_v;
             if (mtype == MType_Void)
-                throw library_type_error(WLL_CURRENT_FUNCTION"\nvalue_type cannot be strictly matched to any MType.");
+                throw library_type_error(WLL_CURRENT_FUNCTION + "\nvalue_type cannot be strictly matched to any MType.");
             int err = global_lib_data->MTensor_new(
                 mtype, _rank, reinterpret_cast<mint*>(dims_.data()), &mtensor_);
             if (err != LIBRARY_NO_ERROR)
-                throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
+                throw library_error(err, WLL_CURRENT_FUNCTION + "\nMTensor_new() failed.");
             if constexpr (mtype == MType_Integer)
                 ptr_ = reinterpret_cast<_ptr_t>(global_lib_data->MTensor_getIntegerData(mtensor_));
             else if constexpr (mtype == MType_Real)
@@ -497,7 +498,7 @@ public:
     {
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
-            throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
+            throw library_memory_error(WLL_CURRENT_FUNCTION + "\nmalloc failed when copying data.");
         _data_copy_n(other.ptr_, size_, ptr_);
     }
 
@@ -515,7 +516,7 @@ public:
     {
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
-            throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
+            throw library_memory_error(WLL_CURRENT_FUNCTION + "\nmalloc failed when copying data.");
         _data_copy_n(other.ptr_, size_, ptr_);
     }
 
@@ -525,7 +526,7 @@ public:
     {
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
         if (ptr_ == nullptr)
-            throw library_memory_error(WLL_CURRENT_FUNCTION"\nmalloc failed when copying data.");
+            throw library_memory_error(WLL_CURRENT_FUNCTION + "\nmalloc failed when copying data.");
         _data_copy_n(other.ptr_, size_, ptr_);
     }
 
@@ -536,7 +537,7 @@ public:
         if (this->ptr_ != other.ptr_)
         {
             if (!(this->_has_same_dims(other.dims_.data())))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\ntensors have different dimensions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\ntensors have different dimensions.");
             _data_copy_n(other.ptr_, size_, ptr_);
         }
         return *this;
@@ -549,7 +550,7 @@ public:
         if (this->ptr_ != other.ptr_)
         {
             if (!(this->_has_same_dims(other.dims_.data())))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\ntensors have different dimensions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\ntensors have different dimensions.");
             if (other.access_ == memory_type::proxy  ||
                 other.access_ == memory_type::shared ||
                 this->access_ == memory_type::proxy  ||
@@ -740,7 +741,7 @@ public:
     void copy_data_from(InputIter src, size_t count = size_t(-1))
     {
         if (count == size_t(-1))
-            count == size_;
+            count = size_;
         WLL_ASSERT(count == size_);
         if (count > 0)
         {
@@ -754,7 +755,7 @@ public:
     void copy_data_to(OutputIter dest, size_t count = size_t(-1))
     {
         if (count == size_t(-1))
-            count == size_;
+            count = size_;
         WLL_ASSERT(count == size_);
         if (count > 0)
         {
@@ -777,7 +778,7 @@ public:
             if (plain_idx < plain_type(0))
                 unsigned_idx += dims_[Level];
         if (unsigned_idx >= dims_[Level])
-            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+            throw std::out_of_range(WLL_CURRENT_FUNCTION + "\nindex out of range");
         if constexpr (Level == 0)
             return unsigned_idx;
         else
@@ -875,7 +876,7 @@ private:
         int err = global_lib_data->MTensor_new(
             mtype_v, _rank, reinterpret_cast<mint*>(const_cast<size_t*>(dims_.data())), &ret_tensor);
         if (err != LIBRARY_NO_ERROR)
-            throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
+            throw library_error(err, WLL_CURRENT_FUNCTION + "\nMTensor_new() failed.");
         if constexpr (mtype_v == MType_Integer)
             _data_copy_n(ptr_, size_, global_lib_data->MTensor_getIntegerData(ret_tensor));
         else if constexpr (mtype_v == MType_Real)
@@ -910,7 +911,7 @@ private:
         WLL_ASSERT(other.access_ == memory_type::owned ||
                    other.access_ == memory_type::manual);
         if (!(this->_has_same_dims(other.dims_.data())))
-            throw library_dimension_error(WLL_CURRENT_FUNCTION"\ntensors have different dimensions.");
+            throw library_dimension_error(WLL_CURRENT_FUNCTION + "\ntensors have different dimensions.");
         std::swap(this->ptr_, other.ptr_);
         std::swap(this->mtensor_, other.mtensor_);
         std::swap(this->access_, other.access_);
@@ -1017,7 +1018,7 @@ MTensor _scalar_mtensor(const T& value)
     MTensor mtensor;
     int err = global_lib_data->MTensor_new(mtype_v, 0, nullptr, &mtensor);
     if (err != LIBRARY_NO_ERROR)
-        throw library_error(err, WLL_CURRENT_FUNCTION"\nMTensor_new() failed.");
+        throw library_error(err, WLL_CURRENT_FUNCTION + "\nMTensor_new() failed.");
 
     if constexpr (mtype_v == MType_Integer)
         *(global_lib_data->MTensor_getIntegerData(mtensor)) = _mtype_cast<mtype>(value);
@@ -1085,8 +1086,8 @@ public:
     using const_iterator  = _sparse_iterator<value_type, _rank, true>;
     using reference       = _sparse_element<value_type, _rank, false>;
     using const_reference = _sparse_element<value_type, _rank, true>;
-    friend class reference;
-    friend class const_reference;
+    friend reference;
+    friend const_reference;
 
     template<typename U, size_t URank>
     friend class sparse_array;
@@ -1409,16 +1410,16 @@ public:
         if (this->values_ != other.values_)
         {
             if (!(this->_has_same_dims(other.dims_.data())))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nSparse arrays have different dimensions.");
             if (this->access_ == memory_type::shared)
             {
                 if (this->nz_size_ != other.nz_size_)
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent numbers of non-zero values.");
                 if (this->implicit_value_ != other.implicit_value_)
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent implicit values.");
                 if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
                     !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent non-zero value positions.");
                 std::copy_n(other.values_, _nz_size(), this->values_);
             }
             else if (other.access_ == memory_type::owned)
@@ -1439,16 +1440,16 @@ public:
         if (this->values_ != other.values_)
         {
             if (!(this->_has_same_dims(other.dims_.data())))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nSparse arrays have different dimensions.");
             if (this->access_ == memory_type::shared)
             {
                 if (this->nz_size_ != other.nz_size_)
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent numbers of non-zero values.");
                 if (this->implicit_value_ != other.implicit_value_)
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent implicit values.");
                 if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
                     !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
-                    throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                    throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent non-zero value positions.");
                 std::copy_n(other.values_, _nz_size(), this->values_);
             }
             else if (other.access_ == memory_type::owned)
@@ -1469,16 +1470,16 @@ public:
         WLL_ASSERT(other.access_ != memory_type::empty);
         WLL_ASSERT((void*)this->values != (void*)other.values_);
         if (!(this->_has_same_dims(other.dims_.data())))
-            throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+            throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nSparse arrays have different dimensions.");
         if (this->access_ == memory_type::shared)
         {
             if (this->nz_size_ != other.nz_size_)
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent numbers of non-zero values.");
             if (this->implicit_value_ != _mtype_cast<value_type>(other.implicit_value_))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent implicit values.");
             if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
                 !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent non-zero value positions.");
             _data_copy_n(other.values_, _nz_size(), this->values_);
         }
         else
@@ -1494,16 +1495,16 @@ public:
         WLL_ASSERT(other.access_ != memory_type::empty);
         WLL_ASSERT((void*)this->values != (void*)other.values_);
         if (!(this->_has_same_dims(other.dims_.data())))
-            throw library_dimension_error(WLL_CURRENT_FUNCTION"\nSparse arrays have different dimensions.");
+            throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nSparse arrays have different dimensions.");
         if (this->access_ == memory_type::shared)
         {
             if (this->nz_size_ != other.nz_size_)
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent numbers of non-zero values.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent numbers of non-zero values.");
             if (this->implicit_value_ != _mtype_cast<value_type>(other.implicit_value_))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent implicit values.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent implicit values.");
             if (!std::equal(this->columns_, this->columns_ + _nz_size(), other.columns_) ||
                 !std::equal(this->row_idx_, this->row_idx_ + _nz_size(), other.row_idx_))
-                throw library_dimension_error(WLL_CURRENT_FUNCTION"\nDifferent non-zero value positions.");
+                throw library_dimension_error(WLL_CURRENT_FUNCTION + "\nDifferent non-zero value positions.");
             _data_copy_n(other.values_, _nz_size(), this->values_);
         }
         else
@@ -1613,7 +1614,7 @@ public:
         static_assert(sizeof...(idx) == _rank, "");
         reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
         if (!ref._check_range())
-            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+            throw std::out_of_range(WLL_CURRENT_FUNCTION + "\nindex out of range");
         return ref;
     }
 
@@ -1623,7 +1624,7 @@ public:
         static_assert(sizeof...(idx) == _rank, "");
         const_reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
         if (!ref._check_range())
-            throw std::out_of_range(WLL_CURRENT_FUNCTION"\nindex out of range");
+            throw std::out_of_range(WLL_CURRENT_FUNCTION + "\nindex out of range");
         return value_type(ref);
     }
 
@@ -1667,11 +1668,6 @@ public:
         constexpr int mtype_v = derive_tensor_data_type<value_type>::convert_type_v;
         static_assert(!std::is_same_v<void, mtype>, "invalid data type to convert to MType");
 
-        //MTensor dims = nullptr;
-        //std::array<mint, 1> dims_dims{_rank};
-        //global_lib_data->MTensor_new(MType_Integer, 1, dims_dims.data(), &dims);
-        //_data_copy_n(this->dims_.data(), _rank, global_lib_data->MTensor_getIntegerData(dims));
-
         tensor<mint, 1> dims({_rank}, memory_type::manual);
         dims.copy_data_from(this->dims_.data(), _rank);
 
@@ -1704,7 +1700,7 @@ public:
             _scalar_mtensor(_mtype_cast<mtype>(this->implicit_value_)),
             &msparse);
         if (err != LIBRARY_NO_ERROR)
-            throw library_error(err, WLL_CURRENT_FUNCTION"\nMSparseArray_fromExplicitPositions() failed.");
+            throw library_error(err, WLL_CURRENT_FUNCTION + "\nMSparseArray_fromExplicitPositions() failed.");
 
 
         return msparse;
