@@ -123,11 +123,11 @@ std::string        global_string_result;
 
 
 #ifdef NDEBUG
-#define WLL_DEBUG_EXECUTE(any) ((void)0)
-#define WLL_ASSERT(x) ((void)0)
+#define WLL_DEBUG_EXECUTE(expr) ((void)0)
+#define WLL_ASSERT(expr) ((void)0)
 #else
-#define WLL_DEBUG_EXECUTE(any) (any)
-#define WLL_ASSERT(x) assert((x))
+#define WLL_DEBUG_EXECUTE(expr) (any)
+#define WLL_ASSERT(expr) assert((expr))
 #endif
 
 
@@ -631,7 +631,7 @@ public:
         return this->ptr_;
     }
 
-    bool operator==(const tensor<value_type, _rank>& other) const
+    bool operator==(const tensor& other) const
     {
         if (this->dims_ != other.dims_)
             return false;
@@ -737,8 +737,10 @@ public:
     }
 
     template<typename InputIter>
-    void copy_data_from(InputIter src, size_t count)
+    void copy_data_from(InputIter src, size_t count = size_t(-1))
     {
+        if (count == size_t(-1))
+            count == size_;
         WLL_ASSERT(count == size_);
         if (count > 0)
         {
@@ -749,8 +751,10 @@ public:
     }
 
     template<typename OutputIter>
-    void copy_data_to(OutputIter dest, size_t count)
+    void copy_data_to(OutputIter dest, size_t count = size_t(-1))
     {
+        if (count == size_t(-1))
+            count == size_;
         WLL_ASSERT(count == size_);
         if (count > 0)
         {
@@ -1559,7 +1563,7 @@ public:
         return this->row_idx_;
     }
 
-    bool operator==(const sparse_array<value_type, _rank>& other) const
+    bool operator==(const sparse_array& other) const
     {
         if (this->dims_ != other.dims_)
             return false;
