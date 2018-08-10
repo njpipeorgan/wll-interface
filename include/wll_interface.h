@@ -1365,7 +1365,7 @@ public:
                 this->values_vec_.resize(_nz_size());
                 _data_copy_n(other.values_, _nz_size(), this->values_vec_.data());
                 this->_update_pointers();
-                this->_refresh_implicit();
+                this->refresh_implicit();
             }
         }
     }
@@ -1710,6 +1710,32 @@ public:
         return msparse;
     }
 
+    void refresh_implicit()
+    {
+        WLL_ASSERT(this->access_ == memory_type::owned);
+        WLL_ASSERT(this->_check_consistency());
+
+        size_t i_nz = 0;
+        size_t new_i_nz = 0;
+        for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
+        {
+            for (; i_nz < row_idx_vec_[i_row]; ++i_nz)
+            {
+                if (values_vec_[i_nz] != this->implicit_value_)
+                {
+                    values_vec_[new_i_nz]  = values_vec_[i_nz];
+                    columns_vec_[new_i_nz] = columns_vec_[i_nz];
+                    ++new_i_nz;
+                }
+            }
+            row_idx_vec_[i_row] = new_i_nz;
+        }
+        nz_size_ = new_i_nz;
+        values_vec_.resize(new_i_nz);
+        columns_vec_.resize(new_i_nz);
+        this->_update_pointers();
+    }
+
     template<bool RefreshImplicit = false, typename Fn>
     void transform(Fn fn)
     {
@@ -1718,7 +1744,7 @@ public:
         std::for_each(this->values_, this->values_ + _nz_size(),
                       [=](auto& value) { value = static_cast<value_type>(fn(value)); });
         if constexpr (RefreshImplicit)
-            this->_refresh_implicit();
+            this->refresh_implicit();
     }
 
     operator tensor<value_type, _rank>() const
@@ -1907,33 +1933,7 @@ private:
         static_assert(Level < _rank, "");
         return (_rank == 1 || Level > size_t(0)) ? 1 : 0;
     }
-
-    void _refresh_implicit()
-    {
-        WLL_ASSERT(this->access_ == memory_type::owned);
-        WLL_ASSERT(this->_check_consistency());
-
-        size_t i_nz = 0;
-        size_t new_i_nz = 0;
-        for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
-        {
-            for (; i_nz < row_idx_vec_[i_row]; ++i_nz)
-            {
-                if (values_vec_[i_nz] != this->implicit_value_)
-                {
-                    values_vec_[new_i_nz]  = values_vec_[i_nz];
-                    columns_vec_[new_i_nz] = columns_vec_[i_nz];
-                    ++new_i_nz;
-                }
-            }
-            row_idx_vec_[i_row] = new_i_nz;
-        }
-        nz_size_ = new_i_nz;
-        values_vec_.resize(new_i_nz);
-        columns_vec_.resize(new_i_nz);
-        this->_update_pointers();
-    }
-
+    
     static _dims_t _get_init_data_dims(const _init_data_t& rules) noexcept
     {
         _dims_t dims{};
