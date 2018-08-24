@@ -26,28 +26,29 @@ For a complete walk-through, see [Walk-through](https://github.com/njpipeorgan/w
 After including `wll_interface.h` and adding *Mathematica* C/C++ IncludeFiles Directory (`$InstallationDirectory/SystemFiles/IncludeFiles/C`) to your compiler's include directories, you are ready to use *wll-interface*. 
 
 Compile the following code into a dynamic library: 
-
-    #include "wll_interface.h"
-    double multiply(double x, int y)
-    {
-        return x * y;
-    }
-    DEFINE_WLL_FUNCTION(multiply)  // defines "wll_multiply"
-
+```C++
+#include "wll_interface.h"
+double multiply(double x, int y)
+{
+    return x * y;
+}
+DEFINE_WLL_FUNCTION(multiply)  // defines "wll_multiply"
+```
 Load the *LibraryLink* function into *Mathematica*, and use the function:
-
-    multiply = LibraryFunctionLoad[
-                 (*full path to the dynamic library*), "wll_multiply", {Real, Integer}, Real];
-    multiply[2.33, 5]
-
+```Mathematica
+multiply = LibraryFunctionLoad[
+             (*full path to the dynamic library*), "wll_multiply", {Real, Integer}, Real];
+multiply[2.33, 5]
+```
 The equivalent code that directly calls *LibraryLink* APIs is shown as follows: 
-
-    EXTERN_C DLLEXPORT int wll_multiply(
-        WolframLibraryData, mint argc, MArgument* args, MArgument res)
-    {
-        double b = MArgument_getReal(args[0]);
-        int    p = MArgument_getInteger(args[1]);
-        double result = b * p;
-        MArgument_setReal(res, result);
-        return LIBRARY_NO_ERROR;
-    }
+```C++
+EXTERN_C DLLEXPORT int wll_multiply(
+    WolframLibraryData, mint argc, MArgument* args, MArgument res)
+{
+    double b = MArgument_getReal(args[0]);
+    int    p = MArgument_getInteger(args[1]);
+    double result = b * p;
+    MArgument_setReal(res, result);
+    return LIBRARY_NO_ERROR;
+}
+```
