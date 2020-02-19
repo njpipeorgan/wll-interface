@@ -4,7 +4,7 @@
 1. I want to write a function in C++ for better performance and load it into *Mathematica*
 2. I want to call an external library with C/C++ API from *Mathematica*
 
-## Prerequites and Innstallation
+## Prerequites and Installation
 
 To use *wll-interface*, you need: 
 
