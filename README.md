@@ -16,38 +16,55 @@ To use *wll-interface*, you need:
 * C++ compiler that covers most of the C++17 features
   * [GCC](https://gcc.gnu.org/) 7 or later
   * [Clang](http://clang.llvm.org/) 4 or later
-  * MSVC 19.11 ([VS](https://visualstudio.microsoft.com/vs/) 2017 15.3) or later
+  * MSVC 19.11 ([Visual Studio](https://visualstudio.microsoft.com/vs/) 2017 15.3) or later
   * [ICC](https://software.intel.com/en-us/c-compilers) 19.0 or later
+
+For more information about setting up compilers, see the documentation page for CCompilerDriver [Specific Compilers](https://reference.wolfram.com/language/CCompilerDriver/tutorial/SpecificCompilers.html.en)
 
 ## Neat example
 
-For a complete walk-through, see [Walk-through](https://github.com/njpipeorgan/wll-interface/wiki/Walk-through) in the Wiki.
+In this example, we are going to load a C++ function `multiply` into *Mathmatica* through *LibraryLink*. 
 
-After including `wll_interface.h` and adding *Mathematica* C/C++ IncludeFiles Directory (`$InstallationDirectory/SystemFiles/IncludeFiles/C`) to your compiler's include directories, you are ready to use *wll-interface*. 
+To use *wll-interface* with C++ code, you need to include the header file and use `DEFINE_WLL_FUNCTION` macro to defined the function to be exported:
+```Mathematica
+src = "
+#include \"wll_interface.h\"
 
-Compile the following code into a dynamic library: 
-```C++
-#include "wll_interface.h"
 double multiply(double x, int y)
 {
     return x * y;
 }
-DEFINE_WLL_FUNCTION(multiply)  // defines "wll_multiply"
+
+DEFINE_WLL_FUNCTION(multiply)  // defines wll_multiply
+";
 ```
-Load the *LibraryLink* function into *Mathematica*, and use the function:
+*wll-interface* will handle the passing of arguments and return value to/from *LibraryLink* through this macro. A new function `wll_multiply` is created here by the library, which is going to be compiled and loaded.
+
+Now we create a shared library from the code. You need to replace `<path-to-wll_interface.h>` below with the directory that contains the header file `wll_interface.h` so that the compiler can find it.
+```Mathematica
+Needs["CCompilerDriver`"];
+mylib = CreateLibrary[src, "wll_multiply", 
+  "IncludeDirectories" -> {"<path-to-wll_interface.h>"}, 
+  Language -> "C++", "CompileOptions" -> "-std=c++17"]
+```
+
+Finally, we load the function into *Mathematica*, and use it:
 ```Mathematica
 multiply = LibraryFunctionLoad[
-             (*full path to the dynamic library*), "wll_multiply", {Real, Integer}, Real];
+  mylib, "wll_multiply", {Real, Integer}, Real];
 multiply[2.33, 5]
 ```
-The equivalent code that directly calls *LibraryLink* APIs is shown as follows: 
+
+**Why does it work?**
+
+*wll-interface* works by effectively creating the following code making calls to *LibraryLink* functions. It is done automatically depending on the type of arguments to `multiply`. 
 ```C++
 EXTERN_C DLLEXPORT int wll_multiply(
     WolframLibraryData, mint argc, MArgument* args, MArgument res)
 {
-    double b = MArgument_getReal(args[0]);
-    int    p = MArgument_getInteger(args[1]);
-    double result = b * p;
+    double arg0 = MArgument_getReal(args[0]);
+    int    arg1 = MArgument_getInteger(args[1]);
+    double result = multiply(arg0, arg1);
     MArgument_setReal(res, result);
     return LIBRARY_NO_ERROR;
 }
