@@ -2628,45 +2628,43 @@ inline bool has_abort() noexcept
     return bool(global_lib_data->AbortQ());
 }
 
-
 }
 
-
-#define DEFINE_WLL_FUNCTION(fn)                                                                         \
-EXTERN_C DLLEXPORT mint WolframLibrary_getVersion()                                                     \
-{                                                                                                       \
-    return WolframLibraryVersion;                                                                       \
-}                                                                                                       \
-EXTERN_C DLLEXPORT int  WolframLibrary_initialize(WolframLibraryData lib_data)                          \
-{                                                                                                       \
-    wll::global_lib_data  = lib_data;                                                                   \
-    wll::global_sparse_fn = wll::global_lib_data->sparseLibraryFunctions;                               \
-    wll::global_exception = wll::exception_status{};                                                    \
-    wll::global_log.clear();                                                                            \
-    return 0;                                                                                           \
-}                                                                                                       \
-EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData)                                 \
-{                                                                                                       \
-    return;                                                                                             \
-}                                                                                                       \
-EXTERN_C DLLEXPORT int  wll_exception_msg(WolframLibraryData, mint, MArgument*, MArgument res)          \
-{                                                                                                       \
-    MArgument_setUTF8String(res, const_cast<char*>(wll::global_exception.message_.c_str()));            \
-    return LIBRARY_NO_ERROR;                                                                            \
-}                                                                                                       \
-EXTERN_C DLLEXPORT int  wll_log_content(WolframLibraryData, mint, MArgument*, MArgument res)            \
-{                                                                                                       \
-    wll::global_log.update_string();                                                                    \
-    MArgument_setUTF8String(res, const_cast<char*>(wll::global_log.string_.c_str()));                   \
-    return LIBRARY_NO_ERROR;                                                                            \
-}                                                                                                       \
-EXTERN_C DLLEXPORT int  wll_log_clear(WolframLibraryData, mint, MArgument*, MArgument res)              \
-{                                                                                                       \
-    wll::global_log.clear();                                                                            \
-    return LIBRARY_NO_ERROR;                                                                            \
-}                                                                                                       \
-EXTERN_C DLLEXPORT int wll_##fn(WolframLibraryData, mint argc, MArgument* args, MArgument res)          \
-{                                                                                                       \
-    return wll::library_eval(fn, argc, args, res);                                                      \
+EXTERN_C DLLEXPORT mint WolframLibrary_getVersion()
+{
+    return WolframLibraryVersion;
+}
+EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data)
+{
+    wll::global_lib_data  = lib_data;
+    wll::global_sparse_fn = wll::global_lib_data->sparseLibraryFunctions;
+    wll::global_exception = wll::exception_status{};
+    wll::global_log.clear();
+    return 0;
+}
+EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData)
+{
+    return;
+}
+EXTERN_C DLLEXPORT int wll_exception_msg(WolframLibraryData, mint, MArgument*, MArgument res)
+{
+    MArgument_setUTF8String(res, const_cast<char*>(wll::global_exception.message_.c_str()));
+    return LIBRARY_NO_ERROR;
+}
+EXTERN_C DLLEXPORT int wll_log_content(WolframLibraryData, mint, MArgument*, MArgument res)
+{
+    wll::global_log.update_string();
+    MArgument_setUTF8String(res, const_cast<char*>(wll::global_log.string_.c_str()));
+    return LIBRARY_NO_ERROR;
+}
+EXTERN_C DLLEXPORT int wll_log_clear(WolframLibraryData, mint, MArgument*, MArgument res)
+{
+    wll::global_log.clear();
+    return LIBRARY_NO_ERROR;
 }
 
+#define DEFINE_WLL_FUNCTION(fn)                                                                 \
+EXTERN_C DLLEXPORT int wll_##fn(WolframLibraryData, mint argc, MArgument* args, MArgument res)  \
+{                                                                                               \
+    return wll::library_eval(fn, argc, args, res);                                              \
+}
