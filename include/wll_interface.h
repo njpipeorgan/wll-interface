@@ -17,6 +17,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "WolframLibrary.h"
@@ -28,20 +29,20 @@ namespace wll
 
 
 #if defined(__GNUC__)
-static_assert(__GNUC__ >= 7, "");
+static_assert(__GNUC__ >= 7);
 #define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
 #elif defined(__INTEL_COMPILER)
-static_assert(__INTEL_COMPILER >= 1900, "");
+static_assert(__INTEL_COMPILER >= 1900);
 #define WLL_CURRENT_FUNCTION std::string(__FUNCTION__)
 #elif defined(__clang__)
-static_assert(__clang_major__ >= 4, "");
+static_assert(__clang_major__ >= 4);
 #define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
 #elif defined(_MSC_VER)
-static_assert(_MSC_VER >= 1911, "");
+static_assert(_MSC_VER >= 1911);
 #define WLL_CURRENT_FUNCTION std::string(__FUNCSIG__)
 #endif
 
-static_assert(sizeof(mint) == sizeof(size_t), "");
+static_assert(sizeof(mint) == sizeof(size_t));
 
 
 struct exception_status
@@ -52,44 +53,44 @@ struct exception_status
 
 struct library_error
 {
-    library_error(int type, std::string message ={}) :
-        type_{type}, message_{message} {}
+    explicit library_error(int type, std::string message ={}) :
+        type_{type}, message_{std::move(message)} {}
 
-    int type() const { return type_; }
-    std::string what() const { return message_; }
+    [[nodiscard]] int type() const { return type_; }
+    [[nodiscard]] std::string what() const { return message_; }
 
     int type_;
     std::string message_;
 };
 struct library_type_error : library_error
 {
-    library_type_error(std::string message ={}) :
-        library_error(LIBRARY_TYPE_ERROR, message) {}
+    explicit library_type_error(std::string message ={}) :
+        library_error(LIBRARY_TYPE_ERROR, std::move(message)) {}
 };
 struct library_rank_error : library_error
 {
-    library_rank_error(std::string message ={}) :
-        library_error(LIBRARY_RANK_ERROR, message) {}
+    explicit library_rank_error(std::string message ={}) :
+        library_error(LIBRARY_RANK_ERROR, std::move(message)) {}
 };
 struct library_dimension_error : library_error
 {
-    library_dimension_error(std::string message ={}) :
-        library_error(LIBRARY_DIMENSION_ERROR, message) {}
+    explicit library_dimension_error(std::string message ={}) :
+        library_error(LIBRARY_DIMENSION_ERROR, std::move(message)) {}
 };
 struct library_numerical_error : library_error
 {
-    library_numerical_error(std::string message ={}) :
-        library_error(LIBRARY_NUMERICAL_ERROR, message) {}
+    explicit library_numerical_error(std::string message ={}) :
+        library_error(LIBRARY_NUMERICAL_ERROR, std::move(message)) {}
 };
 struct library_memory_error : library_error
 {
-    library_memory_error(std::string message ={}) :
-        library_error(LIBRARY_MEMORY_ERROR, message) {}
+    explicit library_memory_error(std::string message ={}) :
+        library_error(LIBRARY_MEMORY_ERROR, std::move(message)) {}
 };
 struct library_function_error : library_error
 {
-    library_function_error(std::string message ={}) :
-        library_error(LIBRARY_FUNCTION_ERROR, message) {}
+    explicit library_function_error(std::string message ={}) :
+        library_error(LIBRARY_FUNCTION_ERROR, std::move(message)) {}
 };
 
 struct log_stringstream_t
@@ -304,7 +305,7 @@ struct _index_array
 {
     using _idx_t = std::array<size_t, Rank>;
 
-    _index_array(const _idx_t& idx) noexcept : idx_{idx} {}
+    explicit _index_array(const _idx_t& idx) noexcept : idx_{idx} {}
 
     template<typename Value>
     std::pair<_idx_t, Value> operator=(const Value& value) const noexcept
@@ -381,7 +382,7 @@ public:
     using _dims_t      = std::array<size_t, _rank>;
     using _init_dims_t = std::initializer_list<size_t>;
     using _init_data_t = tensor_init_data_t<value_type, _rank>;
-    static_assert(_rank > 0, "");
+    static_assert(_rank > 0);
 
     template<typename U, size_t URank>
     friend class tensor;
@@ -479,7 +480,7 @@ public:
         }
     }
 
-    explicit tensor(_init_dims_t dims, memory_type access = memory_type::owned) :
+    tensor(_init_dims_t dims, memory_type access = memory_type::owned) :
         tensor(_convert_to_dims_array<_rank>(dims), access) {}
 
     tensor(_dims_t dims, const _init_data_t& data, memory_type access = memory_type::owned) :
@@ -503,7 +504,7 @@ public:
         _data_copy_n(other.ptr_, size_, ptr_);
     }
 
-    tensor(tensor&& other) :
+    tensor(tensor&& other) noexcept :
         dims_{other.dims_}, size_{other.size_}
     {
         std::swap(ptr_, other.ptr_);
@@ -512,7 +513,7 @@ public:
     }
 
     template<typename U>
-    tensor(const tensor<U, _rank>& other) :
+    explicit tensor(const tensor<U, _rank>& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
@@ -522,7 +523,7 @@ public:
     }
 
     template<typename U>
-    tensor(tensor<U, _rank>&& other) :
+    explicit tensor(tensor<U, _rank>&& other) :
         dims_{other.dims_}, size_{other.size_}, access_{memory_type::owned}
     {
         ptr_ = reinterpret_cast<_ptr_t>(malloc(size_ * sizeof(value_type)));
@@ -533,6 +534,7 @@ public:
 
     tensor& operator=(const tensor& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(other.access_ != memory_type::empty); // other is empty
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
         if (this->ptr_ != other.ptr_)
@@ -546,6 +548,7 @@ public:
 
     tensor& operator=(tensor&& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(other.access_ != memory_type::empty); // other is empty
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
         if (this->ptr_ != other.ptr_)
@@ -570,6 +573,7 @@ public:
     template<typename U>
     tensor& operator=(const tensor<U, _rank>& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(other.access_ != memory_type::empty); // other is empty
         WLL_ASSERT(this->access_ != memory_type::empty); // *this is empty
         // tensors with difference value_type should not have the same ptr_
@@ -589,7 +593,7 @@ public:
         return *this;
     }
 
-    tensor clone(memory_type access = memory_type::owned) const
+    [[nodiscard]] tensor clone(memory_type access = memory_type::owned) const
     {
         WLL_ASSERT(this->access_ != memory_type::empty); // cannot clone an empty tensor
         WLL_ASSERT(access == memory_type::owned || access == memory_type::manual);
@@ -603,22 +607,22 @@ public:
         this->_destroy();
     }
 
-    constexpr size_t rank() const noexcept
+    [[nodiscard]] constexpr size_t rank() const noexcept
     {
         return _rank;
     }
 
-    size_t size() const noexcept
+    [[nodiscard]] size_t size() const noexcept
     {
         return size_;
     }
 
-    _dims_t dimensions() const noexcept
+    [[nodiscard]] _dims_t dimensions() const noexcept
     {
         return dims_;
     }
 
-    size_t dimension(size_t level) const noexcept
+    [[nodiscard]] size_t dimension(size_t level) const noexcept
     {
         return dims_[level];
     }
@@ -628,7 +632,7 @@ public:
         return this->ptr_;
     }
 
-    _const_ptr_t data() const noexcept
+    [[nodiscard]] _const_ptr_t data() const noexcept
     {
         return this->ptr_;
     }
@@ -645,42 +649,42 @@ public:
     template<typename... Idx>
     value_type at(Idx... idx) const
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         return (*this)[_get_flat_idx(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type& at(Idx... idx)
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         return (*this)[_get_flat_idx(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type operator()(Idx... idx) const
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         return (*this)[_get_flat_idx_unsafe(std::make_tuple(idx...))];
     }
 
     template<typename... Idx>
     value_type& operator()(Idx... idx)
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         return (*this)[_get_flat_idx_unsafe(std::make_tuple(idx...))];
     }
 
     template<typename IdxTuple>
     value_type& _tuple_at(const IdxTuple& idx_tuple)
     {
-        static_assert(std::tuple_size_v<IdxTuple> == _rank, "");
+        static_assert(std::tuple_size_v<IdxTuple> == _rank);
         return this->_tuple_at_impl(idx_tuple, std::make_index_sequence<_rank>{});
     }
 
     template<typename IdxTuple>
     value_type _tuple_at(const IdxTuple& idx_tuple) const
     {
-        static_assert(std::tuple_size_v<IdxTuple> == _rank, "");
+        static_assert(std::tuple_size_v<IdxTuple> == _rank);
         return this->_tuple_at_impl(idx_tuple, std::make_index_sequence<_rank>{});
     }
 
@@ -696,23 +700,23 @@ public:
         return ptr_[idx];
     }
 
-    _const_ptr_t cbegin() const noexcept
+    [[nodiscard]] _const_ptr_t cbegin() const noexcept
     {
         WLL_ASSERT(ptr_ != nullptr);
         return ptr_;
     }
 
-    _const_ptr_t cend() const noexcept
+    [[nodiscard]] _const_ptr_t cend() const noexcept
     {
         return this->cbegin() + size_;
     }
 
-    _const_ptr_t begin() const noexcept
+    [[nodiscard]] _const_ptr_t begin() const noexcept
     {
         return this->cbegin();
     }
 
-    _const_ptr_t end() const noexcept
+    [[nodiscard]] _const_ptr_t end() const noexcept
     {
         return this->cend();
     }
@@ -728,7 +732,7 @@ public:
         return this->begin() + size_;
     }
 
-    MTensor get_mtensor() const &
+    [[nodiscard]] MTensor get_mtensor() const &
     {
         return _get_mtensor_lvalue();
     }
@@ -865,7 +869,7 @@ private:
         access_  = memory_type::empty;
     }
 
-    MTensor _get_mtensor_lvalue() const
+    [[nodiscard]] MTensor _get_mtensor_lvalue() const
     {
         WLL_ASSERT(access_ != memory_type::empty);
 
@@ -958,9 +962,9 @@ private:
     }
 
     template<size_t Level>
-    size_t _size_by_level() const noexcept
+    [[nodiscard]] size_t _size_by_level() const noexcept
     {
-        static_assert(Level <= _rank, "");
+        static_assert(Level <= _rank);
         if constexpr (Level == _rank)
             return size_t(1);
         else
@@ -970,7 +974,7 @@ private:
     template<size_t Level, typename Data>
     void _fill_init_data_impl(_ptr_t& ptr, const Data& data)
     {
-        static_assert(Level + 1 <= _rank, "");
+        static_assert(Level + 1 <= _rank);
         const size_t size = data.size();
         const size_t pad_size = this->dims_[Level] - size;
         WLL_ASSERT(size > 0 && pad_size >= 0);
@@ -998,7 +1002,7 @@ private:
 
 private:
     _dims_t dims_;
-    size_t  size_;
+    size_t  size_{};
     _ptr_t  ptr_ = nullptr;
     MTensor mtensor_ = nullptr;
     memory_type access_ = memory_type::empty;
@@ -1081,7 +1085,7 @@ public:
     using _init_dims_t = std::initializer_list<size_t>;
     using _init_rule_t = std::pair<_idx_t, value_type>;
     using _init_data_t = std::initializer_list<_init_rule_t>;
-    static_assert(_rank > 0, "");
+    static_assert(_rank > 0);
 
     using iterator        = _sparse_iterator<value_type, _rank, false>;
     using const_iterator  = _sparse_iterator<value_type, _rank, true>;
@@ -1177,7 +1181,7 @@ public:
         }
     }
 
-    sparse_array(const tensor<value_type, _rank>& other, value_type value = value_type{},
+    explicit sparse_array(const tensor<value_type, _rank>& other, value_type value = value_type{},
                  double reserve_density = -1.0) :
         dims_{other.dimensions()}, size_{other.size()},
         implicit_value_{value}, access_{memory_type::owned}
@@ -1256,7 +1260,7 @@ public:
         this->_update_pointers();
     }
 
-    explicit sparse_array(_init_dims_t dims, value_type value = value_type{}) :
+    sparse_array(_init_dims_t dims, value_type value = value_type{}) :
         sparse_array(_convert_to_dims_array<_rank>(dims), value) {}
 
     sparse_array(_dims_t dims, _init_data_t rules, value_type value = value_type{}) :
@@ -1332,7 +1336,7 @@ public:
 
         if constexpr (UsePointers)
         {
-            static_assert(SameType, "");
+            static_assert(SameType);
             this->values_  = other.values_;
             this->columns_ = other.columns_;
             this->row_idx_ = other.row_idx_;
@@ -1353,7 +1357,7 @@ public:
 
             if constexpr (SwapValues)
             {
-                static_assert(SameType, "");
+                static_assert(SameType);
                 std::swap(this->values_vec_, other.values_vec_);
                 this->_update_pointers();
             }
@@ -1381,7 +1385,7 @@ public:
             this->_ctor_impl<true, false, false, true>(other);
     }
 
-    sparse_array(sparse_array&& other) :
+    sparse_array(sparse_array&& other) noexcept :
         dims_{other.dims_}, size_{other.size_}
     {
         if (other.access_ == memory_type::owned)
@@ -1391,14 +1395,14 @@ public:
     }
 
     template<typename U>
-    sparse_array(const sparse_array<U, _rank>& other) :
+    explicit sparse_array(const sparse_array<U, _rank>& other) :
         dims_{other.dims_}, size_{other.size_}
     {
         this->_ctor_impl<false, false, false, false>(other);
     }
 
     template<typename U>
-    sparse_array(sparse_array<U, _rank>&& other) :
+    explicit sparse_array(sparse_array<U, _rank>&& other) :
         dims_{other.dims_}, size_{other.size_}
     {
         this->_ctor_impl<false, false, false, false>(std::move(other));
@@ -1406,6 +1410,7 @@ public:
 
     sparse_array& operator=(const sparse_array& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(this->access_ != memory_type::empty);
         WLL_ASSERT(other.access_ != memory_type::empty);
         if (this->values_ != other.values_)
@@ -1428,14 +1433,12 @@ public:
             else // other.access_ == proxy / shared
                 this->_ctor_impl<true, false, false, true>(other);
         }
-        else
-        {
-            //do nothing
-        }
+        return *this;
     }
 
     sparse_array& operator=(sparse_array&& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(this->access_ != memory_type::empty);
         WLL_ASSERT(other.access_ != memory_type::empty);
         if (this->values_ != other.values_)
@@ -1458,15 +1461,13 @@ public:
             else // other.access_ == proxy / shared
                 this->_ctor_impl<true, false, false, true>(other);
         }
-        else
-        {
-            //do nothing
-        }
+        return *this;
     }
 
     template<typename U>
     sparse_array& operator=(const sparse_array<U, _rank>& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(this->access_ != memory_type::empty);
         WLL_ASSERT(other.access_ != memory_type::empty);
         WLL_ASSERT((void*)this->values != (void*)other.values_);
@@ -1487,11 +1488,13 @@ public:
         {
             this->_ctor_impl<false, false, false, false>(other);
         }
+        return *this;
     }
 
     template<typename U>
     sparse_array& operator=(sparse_array<U, _rank>&& other)
     {
+        if(this == &other) return *this;
         WLL_ASSERT(this->access_ != memory_type::empty);
         WLL_ASSERT(other.access_ != memory_type::empty);
         WLL_ASSERT((void*)this->values != (void*)other.values_);
@@ -1512,6 +1515,7 @@ public:
         {
             this->_ctor_impl<false, false, false, false>(other);
         }
+        return *this;
     }
 
     ~sparse_array()
@@ -1525,12 +1529,12 @@ public:
         this->msparse_ = nullptr;
     }
 
-    constexpr size_t rank() const noexcept
+    [[nodiscard]] constexpr size_t rank() const noexcept
     {
         return _rank;
     }
 
-    size_t size() const noexcept
+    [[nodiscard]] size_t size() const noexcept
     {
         return size_;
     }
@@ -1540,7 +1544,7 @@ public:
         return dims_;
     }
 
-    size_t dimension(size_t level) const noexcept
+    [[nodiscard]] size_t dimension(size_t level) const noexcept
     {
         return dims_[level];
     }
@@ -1560,7 +1564,7 @@ public:
         return this->values_;
     }
 
-    const size_t* row_indices_pointer() const noexcept
+    [[nodiscard]] const size_t* row_indices_pointer() const noexcept
     {
         return this->row_idx_;
     }
@@ -1597,14 +1601,14 @@ public:
     template<typename... Idx>
     reference operator()(Idx... idx) noexcept
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         return this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
     }
 
     template<typename... Idx>
     value_type operator()(Idx... idx) const
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         const_reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
         return value_type(ref);
     }
@@ -1612,7 +1616,7 @@ public:
     template<typename... Idx>
     reference at(Idx... idx)
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
         if (!ref._check_range())
             throw std::out_of_range(WLL_CURRENT_FUNCTION + "\nindex out of range");
@@ -1622,7 +1626,7 @@ public:
     template<typename... Idx>
     value_type at(Idx... idx) const
     {
-        static_assert(sizeof...(idx) == _rank, "");
+        static_assert(sizeof...(idx) == _rank);
         const_reference ref = this->_get_element_ref(std::make_index_sequence<_rank>{}, idx...);
         if (!ref._check_range())
             throw std::out_of_range(WLL_CURRENT_FUNCTION + "\nindex out of range");
@@ -1663,7 +1667,7 @@ public:
         return {*this, idx};
     }
 
-    MSparseArray get_msparse() const
+    [[nodiscard]] MSparseArray get_msparse() const
     {
         using mtype = typename derive_tensor_data_type<value_type>::convert_type;
         constexpr int mtype_v = derive_tensor_data_type<value_type>::convert_type_v;
@@ -1673,7 +1677,7 @@ public:
         dims.copy_data_from(this->dims_.data(), _rank);
 
         tensor<mint, 2> poss({_nz_size(), _rank}, memory_type::manual);
-        std::array<mint, _rank>* poss_ptr = reinterpret_cast<std::array<mint, _rank>*>(poss.data());
+        auto* poss_ptr = reinterpret_cast<std::array<mint, _rank>*>(poss.data());
         for (size_t i_row = 1; i_row < _row_idx_size(); ++i_row)
         {
             for (size_t i_nz = row_idx_[i_row - 1]; i_nz < row_idx_[i_row]; ++i_nz, ++poss_ptr)
@@ -1744,7 +1748,7 @@ public:
             this->refresh_implicit();
     }
 
-    operator tensor<value_type, _rank>() const
+    explicit operator tensor<value_type, _rank>() const
     {
         WLL_ASSERT(this->_check_consistency());
         tensor<value_type, _rank> ret(this->dims_);
@@ -1770,12 +1774,12 @@ public:
 
 private:
 
-    size_t _nz_size() const noexcept
+    [[nodiscard]] size_t _nz_size() const noexcept
     {
         return this->nz_size_;
     }
 
-    size_t _row_idx_size() const noexcept
+    [[nodiscard]] size_t _row_idx_size() const noexcept
     {
         return _rank == 1 ? 2 : (dims_[0] + 1);
     }
@@ -1837,7 +1841,7 @@ private:
         this->row_idx_ = row_idx_vec_.data();
     }
 
-    bool _check_consistency() const
+    [[nodiscard]] bool _check_consistency() const
     {
         WLL_ASSERT(this->access_ == memory_type::owned ||
                    this->access_ == memory_type::proxy ||
@@ -1925,9 +1929,9 @@ private:
     }
 
     template<size_t Level>
-    constexpr size_t column_base_correction() const
+    [[nodiscard]] constexpr size_t column_base_correction() const
     {
-        static_assert(Level < _rank, "");
+        static_assert(Level < _rank);
         return (_rank == 1 || Level > size_t(0)) ? 1 : 0;
     }
     
@@ -1964,8 +1968,8 @@ private:
 
 private:
     _dims_t    dims_;
-    size_t     size_;              // total size of the array
-    size_t     nz_size_;           // number of non-zero elements
+    size_t     size_{};              // total size of the array
+    size_t     nz_size_{};           // number of non-zero elements
     value_type implicit_value_{};
     _ptr_t     values_  = nullptr; // (nz_size_)
     _column_t* columns_ = nullptr; // (nz_size_) * (_column_size)
@@ -1989,12 +1993,12 @@ public:
     using _sparse_t = std::conditional_t<IsConst,
         const sparse_array<value_type, _rank>&, sparse_array<value_type, _rank>&>;
     using _column_t = typename sparse_array<value_type, _rank>::_column_t;
-    static_assert(_rank > 0, "");
+    static_assert(_rank > 0);
 
     _sparse_element(_sparse_t sparse, _idx_t idx) :
         sparse_{sparse}, idx_{idx} {}
 
-    operator value_type() const
+    explicit operator value_type() const
     {
         const auto[is_explicit, offset] = this->_find_element();
         return is_explicit ? sparse_.values_[offset] : sparse_.implicit_value_;
@@ -2029,7 +2033,7 @@ public:
         return *this;
     }
 
-    bool _check_range() const noexcept
+    [[nodiscard]] bool _check_range() const noexcept
     {
         const auto& dims = sparse_.dimensions();
         if constexpr (_rank == 1)
@@ -2048,7 +2052,7 @@ public:
         return true;
     }
 
-    std::pair<bool, size_t> _find_element() const
+    [[nodiscard]] std::pair<bool, size_t> _find_element() const
     {
         WLL_ASSERT(sparse_._check_consistency());
         WLL_ASSERT(_check_range());
@@ -2071,7 +2075,7 @@ public:
         }
     }
 
-    size_t _row_idx_offset() const
+    [[nodiscard]] size_t _row_idx_offset() const
     {
         return (_rank == 1) ? 0 : idx_[0];
     }
@@ -2517,7 +2521,7 @@ void submit_result(Ret&& result, MArgument mresult)
     }
     else if constexpr (std::is_same_v<std::string, Ret>)
     {
-        global_string_result = std::move(result);
+        global_string_result = std::forward<Ret>(result);
         char* string_ptr = const_cast<char*>(global_string_result.c_str());
         MArgument_setUTF8String(mresult, string_ptr);
     }
@@ -2530,12 +2534,12 @@ void submit_result(Ret&& result, MArgument mresult)
     }
     else if constexpr (tensor_passing_category_v<Ret> == tensor_passing_by::value)
     {
-        MTensor ret = std::move(result).get_mtensor();
+        MTensor ret = std::forward<Ret>(result).get_mtensor();
         MArgument_setMTensor(mresult, ret);
     }
     else if constexpr (sparse_passing_category_v<Ret> == sparse_passing_by::value)
     {
-        MSparseArray ret = std::move(result).get_msparse();
+        MSparseArray ret = std::forward<Ret>(result).get_msparse();
         MArgument_setMSparseArray(mresult, ret);
     }
     else
@@ -2570,7 +2574,7 @@ auto tuple_invoke(Fn&& fn, ArgsTuple& args)
                              std::make_index_sequence<std::tuple_size_v<ArgsTuple>>{});
 }
 
-inline void handle_exception(std::exception_ptr eptr) noexcept
+inline void handle_exception(const std::exception_ptr& eptr) noexcept
 {
     try
     {
@@ -2642,10 +2646,7 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data)
     wll::global_log.clear();
     return 0;
 }
-EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData)
-{
-    return;
-}
+EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData){ }
 EXTERN_C DLLEXPORT int wll_exception_msg(WolframLibraryData, mint, MArgument*, MArgument res)
 {
     MArgument_setUTF8String(res, const_cast<char*>(wll::global_exception.message_.c_str()));
