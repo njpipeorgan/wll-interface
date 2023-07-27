@@ -27,19 +27,18 @@
 namespace wll
 {
 
-
-#if defined(__GNUC__)
-static_assert(__GNUC__ >= 7);
-#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
-#elif defined(__INTEL_COMPILER)
-static_assert(__INTEL_COMPILER >= 1900);
-#define WLL_CURRENT_FUNCTION std::string(__FUNCTION__)
-#elif defined(__clang__)
-static_assert(__clang_major__ >= 4);
-#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)
-#elif defined(_MSC_VER)
-static_assert(_MSC_VER >= 1911);
-#define WLL_CURRENT_FUNCTION std::string(__FUNCSIG__)
+#if defined(__clang__)                                                               
+static_assert(__clang_major__ >= 4);                                                 
+#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)                        
+#elif defined(__GNUC__)                                                              
+static_assert(__GNUC__ >= 7);                                                        
+#define WLL_CURRENT_FUNCTION std::string(__PRETTY_FUNCTION__)                        
+#elif defined(__INTEL_COMPILER)                                                      
+static_assert(__INTEL_COMPILER >= 1900);                                             
+#define WLL_CURRENT_FUNCTION std::string(__FUNCTION__)                               
+#elif defined(_MSC_VER)                                                              
+static_assert(_MSC_VER >= 1911);                                                     
+#define WLL_CURRENT_FUNCTION std::string(__FUNCSIG__)                                
 #endif
 
 static_assert(sizeof(mint) == sizeof(size_t));
